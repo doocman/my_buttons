@@ -1,3 +1,9 @@
 [submodule "pico-sdk"]
 	path = pico-sdk
 	url = git@github.com:raspberrypi/pico-sdk.git
+[submodule "pico-linux-libc"]
+	path = pico-linux-libc
+	url = git@github.com:doocman/pico-linux-libc.git
+[submodule "cpp-test-anywhere"]
+	path = cpp-test-anywhere
+	url = git@github.com:doocman/cpp-test-anywhere.git
