@@ -29,8 +29,18 @@ struct dummy_toggle {
   constexpr void on_sleep() noexcept { ++sleep_count; }
   constexpr void on_wake() noexcept { ++wake_count; }
 };
-CTA_BEGIN_TESTS(ui_context)
-CTA_TEST(toggle, ctx) {
+struct dummy_output_pin {
+  int initiated{};
+  int disabled{};
+  int toggled_on{};
+  int toggled_off{};
+  constexpr void set_on() { ++toggled_on; }
+  constexpr void set_off() { ++toggled_off; }
+  constexpr void initiate() { ++initiated; }
+  constexpr void disable() { ++disabled; }
+};
+CTA_BEGIN_TESTS(myb_tests)
+CTA_TEST(toggle_ui_ctx, ctx) {
   dummy_toggle t1;
   dummy_toggle t2;
   auto ui = ui_context::builder()
@@ -72,6 +82,38 @@ CTA_TEST(sleep_and_wake, ctx) {
   ctx.expect_that(t2.sleep_count, eq(2));
   ctx.expect_that(t1.wake_count, eq(1));
   ctx.expect_that(t2.wake_count, eq(1));
+  ui.toggle_gpio(1);
+  ctx.expect_that(t1.wake_count, eq(2));
+  ctx.expect_that(t2.wake_count, eq(2));
+}
+CTA_TEST(led_raii_init_light_destruct, ctx) {
+  dummy_output_pin pin;
+  {
+    auto led = led_wrap_pin(std::ref(pin));
+    ctx.expect_that(pin.initiated, eq(1));
+    ctx.expect_that(pin.disabled, eq(0));
+    ctx.expect_that(pin.toggled_on, eq(0));
+    ctx.expect_that(pin.toggled_off, eq(0));
+    led.trigger();
+    ctx.expect_that(pin.initiated, eq(1));
+    ctx.expect_that(pin.disabled, eq(0));
+    ctx.expect_that(pin.toggled_on, eq(1));
+    ctx.expect_that(pin.toggled_off, eq(0));
+    led.trigger();
+    ctx.expect_that(pin.initiated, eq(1));
+    ctx.expect_that(pin.disabled, eq(0));
+    ctx.expect_that(pin.toggled_on, eq(1));
+    ctx.expect_that(pin.toggled_off, eq(1));
+    led.trigger();
+    ctx.expect_that(pin.initiated, eq(1));
+    ctx.expect_that(pin.disabled, eq(0));
+    ctx.expect_that(pin.toggled_on, eq(2));
+    ctx.expect_that(pin.toggled_off, eq(1));
+  }
+  ctx.expect_that(pin.initiated, eq(1));
+  ctx.expect_that(pin.disabled, eq(1));
+  ctx.expect_that(pin.toggled_on, eq(2));
+  ctx.expect_that(pin.toggled_off, eq(2));
 }
 CTA_END_TESTS()
 } // namespace myb

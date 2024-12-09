@@ -37,40 +37,49 @@ public:
 };
 class ui_context {
   template <typename GPIOs> class impl : GPIOs {
+    bool sleeping{};
+
   public:
     template <typename GP>
       requires(std::constructible_from<GPIOs, GP>)
     constexpr explicit impl(GP &&g) : GPIOs(std::forward<GP>(g)) {}
     constexpr bool toggle_gpio(std::integral auto pin) {
-      return apply_to(static_cast<GPIOs &>(*this),
-                      [pin](auto &...actions) -> bool {
-                        auto constexpr invoker = [](auto &a, auto p) {
-                          if (a.pin_value == p) {
-                            a.trigger();
-                            return true;
-                          }
-                          return false;
-                        };
-                        return (invoker(actions, pin) || ...);
-                      });
+      return apply_to(
+          static_cast<GPIOs &>(*this), [this, pin](auto &...actions) -> bool {
+            auto constexpr invoker = [](auto &a, auto p, auto &&self) {
+              if (a.pin_value == p) {
+                self.wake();
+                a.trigger();
+                return true;
+              }
+              return false;
+            };
+            return (invoker(actions, pin, *this) || ...);
+          });
     }
     constexpr void sleep() {
-      apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
-        auto constexpr sleeper = [](auto &a) {
-          a.on_sleep();
-          return 0;
-        };
-        (void)(sleeper(actions) + ...);
-      });
+      if (!sleeping) {
+        apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
+          auto constexpr sleeper = [](auto &a) {
+            a.on_sleep();
+            return 0;
+          };
+          (void)(sleeper(actions) + ...);
+        });
+        sleeping = true;
+      }
     }
     constexpr void wake() {
-      apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
-        auto constexpr waker = [](auto &a) {
-          a.on_wake();
-          return 0;
-        };
-        (void)(waker(actions) + ...);
-      });
+      if (sleeping) {
+        apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
+          auto constexpr waker = [](auto &a) {
+            a.on_wake();
+            return 0;
+          };
+          (void)(waker(actions) + ...);
+        });
+        sleeping = false;
+      }
     }
   };
 
@@ -110,6 +119,72 @@ constexpr ResType operator>>(gpio_sel_t<pin>,
                              std::reference_wrapper<Action> action) {
   return ResType(action.get());
 }
+
+template <typename T>
+concept binary_output = requires(T &t) {
+  t.initiate();
+  t.disable();
+  t.set_on();
+  t.set_off();
+};
+template <binary_output T>
+class led_wrap_pin : dtl::empty_structs_optimiser<T> {
+  using _base_t = dtl::empty_structs_optimiser<T>;
+  bool is_on_{};
+  bool initiated_{};
+  static constexpr bool do_initiate(auto &&output) {
+    output.initiate();
+    return true;
+  }
+  constexpr void maybe_uninit() noexcept {
+    if (initiated_) {
+      _base_t::get_first().disable();
+      initiated_ = false;
+    }
+  }
+
+public:
+  template <typename... Ts>
+    requires(std::constructible_from<T, Ts...>)
+  constexpr explicit(sizeof...(Ts) == 1) led_wrap_pin(Ts &&...args)
+      : _base_t(std::forward<Ts>(args)...),
+        initiated_(do_initiate(_base_t::get_first())) {}
+  constexpr led_wrap_pin(led_wrap_pin &&other) noexcept
+      : _base_t(std::move(other)), is_on_(other.is_on_),
+        initiated_(std::exchange(other.initiated_, false)) {}
+  constexpr led_wrap_pin &operator=(led_wrap_pin &&other) noexcept {
+    if (!this == &other) {
+      std::swap(static_cast<_base_t &>(other), static_cast<_base_t &>(*this));
+      std::swap(is_on_, other.is_on_);
+      std::swap(initiated_, other.initiated_);
+    }
+    return *this;
+  }
+  constexpr void turn_off() {
+    if (is_on_) {
+      _base_t::get_first().set_off();
+      is_on_ = false;
+    }
+  }
+  constexpr void turn_on() {
+    if (is_on_) {
+      _base_t::get_first().set_off();
+      is_on_ = true;
+    }
+  }
+  constexpr ~led_wrap_pin() { maybe_uninit(); }
+  constexpr void trigger() {
+    if (!is_on_) {
+      _base_t::get_first().set_on();
+    } else {
+      _base_t::get_first().set_off();
+    }
+    is_on_ = !is_on_;
+  }
+};
+
+template <typename T>
+led_wrap_pin(T &&) -> led_wrap_pin<std::unwrap_ref_decay_t<T>>;
 
 } // namespace myb
 
