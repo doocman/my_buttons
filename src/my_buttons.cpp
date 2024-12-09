@@ -20,7 +20,6 @@ int main() {
   }
   while (true) {
     fmt::print("Hello World!\n");
-    // sleep_us(1000);
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
 }
