@@ -1,22 +1,21 @@
 
-
+#include <array>
 #include <chrono>
 #include <thread>
 
+#ifdef MYB_PICO
 #include <class/cdc/cdc_device.h>
 #include <device/usbd.h>
 #include <pico/bootrom.h>
 #include <pico/stdlib.h>
+#include <picolinux/picolinux_libc.hpp>
+#endif
 
 #include <fmt/core.h>
-
-#include <picolinux/picolinux_libc.hpp>
 
 #include <myb/myb.hpp>
 
 #include <cta/cta.hpp>
-
-#define MYB_PICO
 
 namespace myb {
 using namespace ::cta;
@@ -114,6 +113,40 @@ CTA_TEST(led_raii_init_light_destruct, ctx) {
   ctx.expect_that(pin.disabled, eq(1));
   ctx.expect_that(pin.toggled_on, eq(2));
   ctx.expect_that(pin.toggled_off, eq(2));
+}
+CTA_TEST(variant_behaviour_basics, ctx) {
+  constexpr auto tot_states = 3;
+  using array_t = std::array<int, tot_states>;
+  array_t calls{};
+  auto to_test = variant_stateless_function(
+      std::ref(calls), [](array_t &c) { ++c[0]; }, [](array_t &c) { ++c[1]; },
+      [](array_t &c) { ++c[2]; });
+  ctx.expect_that(decltype(to_test)::size(), eq(3));
+  to_test(calls);
+  ctx.expect_that(calls[0], eq(1));
+  ctx.expect_that(calls[1], eq(0));
+  ctx.expect_that(calls[2], eq(0));
+  ctx.expect_that(to_test.index(), eq(0));
+  to_test.index(1);
+  ctx.expect_that(to_test.index(), eq(1));
+  to_test(calls);
+  ctx.expect_that(calls[0], eq(1));
+  ctx.expect_that(calls[1], eq(1));
+  ctx.expect_that(calls[2], eq(0));
+}
+CTA_TEST(few_buttons_calculator_basics, ctx) {
+  auto calc = few_buttons_calculator<3>();
+  ctx.expect_that(calc.result(), eq(0u));
+  calc.set_lhs(5);
+  ctx.expect_that(calc.result(), eq(5u));
+  calc.set_rhs(3);
+  ctx.expect_that(calc.result(), eq(8u));
+  calc.set_operator(few_buttons_calculator_operations::subtract);
+  ctx.expect_that(calc.result(), eq(2u));
+  calc.set_rhs(8);
+  ctx.expect_that(calc.result(), eq(0b111 - 3u));
+  //ctx.swap_lr();
+  //ctx.expect_that(calc.result(), eq(0b111 - 2u));
 }
 CTA_END_TESTS()
 } // namespace myb

@@ -1,0 +1,53 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+      "major": 3,
+      "minor": 25,
+      "patch": 0
+    },
+    "include": ["cpp-test-anywhere/cmake-presets/CMakePresets.json"],
+    "configurePresets": [{
+        "name": "gcc-pico-basic",
+        "hidden": true,
+        "inherits": ["gcc-release"],
+        "cacheVariables": {
+            "MYB_RPI_PICO": true,
+            "CMAKE_C_COMPILER": "/bin/arm-none-eabi-gcc",
+            "CMAKE_CXX_COMPILER": "/bin/arm-none-eabi-g++"
+        },
+        "environment": {
+            "CC": "gcc-14",
+            "CXX": "g++-14"
+        }
+    }, {
+        "name": "gcc-rp2040",
+        "inherits":["gcc-pico-basic"],
+        "cacheVariables": {
+            "PICO_PLATFORM":"rp2040"
+        },
+        "binaryDir": "build/p_rp2040_r",
+        "installDir": "install/p_rp2040_r"
+    }, {
+        "name": "gcc-rp2350",
+        "inherits":["gcc-pico-basic"],
+        "cacheVariables": {
+            "PICO_PLATFORM":"rp2350"
+        },
+        "binaryDir": "build/p_rp2350_r",
+        "installDir": "install/p_rp2350_r"
+    }, {
+        "name": "gcc-14-host",
+        "inherits": "gcc-debug",
+        "cacheVariables": {
+            "CMAKE_C_COMPILER": "gcc-14",
+            "CMAKE_CXX_COMPILER": "g++-14",
+            "MYB_RPI_PICO": false
+        },
+        "binaryDir": "build/host-gcc-14",
+        "installDir": "install/host-gcc-14"
+    }],
+    "buildPresets": [{
+        "name": "gcc-rp2040",
+        "configurePreset": "gcc-rp2040"
+    }]
+  }

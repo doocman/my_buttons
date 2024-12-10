@@ -2,11 +2,18 @@
 #ifndef MY_BUTTONS_MYB_MYB_HPP
 #define MY_BUTTONS_MYB_MYB_HPP
 
+#include <numeric>
 #include <utility>
 
 #include <cgui/std-backport/tuple.hpp>
+#include <cgui/std-backport/utility.hpp>
 
 namespace myb {
+constexpr void always_assert(auto&&... conditions) {
+    if (!(conditions && ...)) [[unlikely]] {
+        std::abort();
+    }
+}
 namespace dtl = cgui::bp;
 template <typename T>
 concept gpio_action = requires(T &t) {
@@ -136,8 +143,25 @@ class led_wrap_pin : dtl::empty_structs_optimiser<T> {
     output.initiate();
     return true;
   }
+
+public:
+  constexpr void turn_off() {
+    if (is_on_) {
+      _base_t::get_first().set_off();
+      is_on_ = false;
+    }
+  }
+  constexpr void turn_on() {
+    if (is_on_) {
+      _base_t::get_first().set_off();
+      is_on_ = true;
+    }
+  }
+
+private:
   constexpr void maybe_uninit() noexcept {
     if (initiated_) {
+      turn_off();
       _base_t::get_first().disable();
       initiated_ = false;
     }
@@ -160,18 +184,6 @@ public:
     }
     return *this;
   }
-  constexpr void turn_off() {
-    if (is_on_) {
-      _base_t::get_first().set_off();
-      is_on_ = false;
-    }
-  }
-  constexpr void turn_on() {
-    if (is_on_) {
-      _base_t::get_first().set_off();
-      is_on_ = true;
-    }
-  }
   constexpr ~led_wrap_pin() { maybe_uninit(); }
   constexpr void trigger() {
     if (!is_on_) {
@@ -185,6 +197,108 @@ public:
 
 template <typename T>
 led_wrap_pin(T &&) -> led_wrap_pin<std::unwrap_ref_decay_t<T>>;
+
+template <typename T, typename Data>
+concept variant_behaviour_member =
+    std::invocable<T, Data &> && std::is_empty_v<T> && std::is_trivial_v<T>;
+
+template <typename Data, variant_behaviour_member<Data>... Behaviours>
+requires(sizeof...(Behaviours) > 0)
+class variant_stateless_function {
+  using return_t = std::common_reference_t<std::invoke_result_t<Behaviours, Data>...>;
+  using f_type = return_t(Data&&);
+  template <std::size_t i>
+  using behaviour_t = std::tuple_element_t<i, std::tuple<Behaviours...>>;
+  inline static constexpr std::add_pointer_t<f_type> functions[] = {[] (Data&& d) -> return_t {
+    return Behaviours{}(std::forward<Data>(d));
+  }...};
+  using index_t = std::uint_least8_t;
+  static_assert(std::numeric_limits<index_t>::max() >= sizeof...(Behaviours) - 1);
+  index_t i_{};
+public:
+  template <typename D2>
+    requires(std::constructible_from<Data, D2>)
+  explicit constexpr variant_stateless_function(D2 &&, Behaviours...) {}
+  explicit constexpr variant_stateless_function(Behaviours...) {}
+  constexpr variant_stateless_function() = default;
+
+  static constexpr std::size_t size() noexcept { return sizeof...(Behaviours); }
+  constexpr return_t operator()(Data&& d) const{
+    return functions[i_](std::forward<Data>(d));
+  }
+  constexpr std::size_t index() const noexcept {
+     return static_cast<std::size_t>(i_);
+  }
+  constexpr void index(std::size_t i) {
+    always_assert(i < size());
+    i_ = static_cast<index_t>(i);
+  }
+};
+
+template <typename T, typename... Ts>
+variant_stateless_function(T &&, Ts...)
+    -> variant_stateless_function<std::unwrap_ref_decay_t<T>, Ts...>;
+
+enum class few_buttons_calculator_operations {
+    add, subtract, multiply, divide
+};
+
+template <std::size_t bit_count>
+class few_buttons_calculator {
+public:
+    using result_t = std::uint_least8_t;
+    static_assert(sizeof(result_t) * CHAR_BIT >= bit_count * 2);
+    using input_t = result_t;
+    static constexpr auto max_in = ((1 << bit_count) - 1);
+    static_assert(((max_in + 1) >> bit_count) == 1, "We can't represent bit_count");
+    static_assert(max_in <= std::numeric_limits<input_t>::max());
+private:
+    template <typename B>
+    struct op_base {
+        constexpr result_t operator()(std::pair<input_t, input_t> v) const {
+            return B::call(v.first, v.second);
+        }
+    };
+    struct plus : op_base<plus> {
+        static constexpr result_t call(input_t l, input_t r) {
+            return l + r;
+        }
+    };
+    struct minus : op_base<minus> {
+        static constexpr result_t call(input_t l, input_t r) {
+            return l - r;
+        }};
+    struct subtract : op_base<subtract> {
+        static constexpr result_t call(input_t l, input_t r) {
+            return l + r;
+        }};
+    struct divide : op_base<divide> {
+        static constexpr result_t call(input_t l, input_t r) {
+            return l + r;
+        }};
+
+    input_t lhs_{};
+    input_t rhs_{};
+    variant_stateless_function<std::pair<input_t, input_t>, plus, minus, subtract, divide> op_;
+public:
+    constexpr result_t result() const {
+        //return lhs_ + rhs_;
+        return op_(std::pair{lhs_, rhs_});
+    }
+    constexpr void set_lhs(input_t v) {
+        lhs_ = v;
+    }
+    constexpr void set_rhs(input_t v) {
+        rhs_ = v;
+    }
+    constexpr void set_operator(few_buttons_calculator_operations op) {
+        op_.index(static_cast<int>(op));
+    }
+    constexpr void swap_lr() noexcept {
+        //std::swap(lhs_, rhs_);
+    }
+    
+};
 
 } // namespace myb
 
