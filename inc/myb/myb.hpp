@@ -5,6 +5,7 @@
 #include <numeric>
 #include <utility>
 
+#include <cgui/std-backport/functional.hpp>
 #include <cgui/std-backport/tuple.hpp>
 #include <cgui/std-backport/utility.hpp>
 
@@ -21,6 +22,13 @@ concept gpio_action = requires(T &t) {
   t.on_sleep();
   t.on_wake();
 };
+struct no_op_gpio_action_t {
+  static constexpr void trigger(auto &&...) noexcept {}
+  static constexpr void on_sleep(auto &&...) noexcept {}
+  static constexpr void on_wake(auto &&...) noexcept {}
+};
+inline constexpr no_op_gpio_action_t no_op_gpio_action;
+
 template <typename Int> struct ct_int {
   Int i;
   constexpr explicit(false) ct_int(Int in) noexcept : i(in) {}
@@ -50,19 +58,24 @@ class ui_context {
     template <typename GP>
       requires(std::constructible_from<GPIOs, GP>)
     constexpr explicit impl(GP &&g) : GPIOs(std::forward<GP>(g)) {}
-    constexpr bool toggle_gpio(std::integral auto pin) {
-      return apply_to(
-          static_cast<GPIOs &>(*this), [this, pin](auto &...actions) -> bool {
-            auto constexpr invoker = [](auto &a, auto p, auto &&self) {
-              if (a.pin_value == p) {
-                self.wake();
-                a.trigger();
-                return true;
-              }
-              return false;
-            };
-            return (invoker(actions, pin, *this) || ...);
-          });
+    template <std::integral Pin, std::invocable CB = dtl::no_op_t>
+    constexpr bool trigger_gpio(Pin pin, CB &&cb = {}) {
+      if (apply_to(static_cast<GPIOs &>(*this),
+                   [this, pin](auto &...actions) -> bool {
+                     auto constexpr invoker = [](auto &a, auto p, auto &&self) {
+                       if (a.pin_value == p) {
+                         self.wake();
+                         a.trigger();
+                         return true;
+                       }
+                       return false;
+                     };
+                     return (invoker(actions, pin, *this) || ...);
+                   })) {
+        std::invoke(cb);
+        return true;
+      }
+      return false;
     }
     constexpr void sleep() {
       if (!sleeping) {
@@ -243,6 +256,18 @@ template <typename T, typename... Ts>
 variant_stateless_function(T &&, Ts...)
     -> variant_stateless_function<std::unwrap_ref_decay_t<T>, Ts...>;
 
+template <typename T, typename... Ts>
+constexpr variant_stateless_function<T, Ts...>
+rotate(variant_stateless_function<T, Ts...> vsf) {
+  constexpr auto max_v = sizeof...(Ts);
+  vsf.index((vsf.index() + 1) % max_v);
+  return vsf;
+}
+template <typename T, typename... Ts>
+constexpr void rotate_inplace(variant_stateless_function<T, Ts...> *vsf) {
+  *vsf = rotate(*vsf);
+}
+
 enum class few_buttons_calculator_operations {
   add,
   subtract,
@@ -252,6 +277,7 @@ enum class few_buttons_calculator_operations {
 
 template <std::size_t bit_count> class few_buttons_calculator {
 public:
+  static constexpr auto input_bits = bit_count;
   using result_t = std::uint_least8_t;
   static_assert(sizeof(result_t) * CHAR_BIT >= bit_count * 2);
   using input_t = result_t;
@@ -299,14 +325,17 @@ private:
       op_;
 
 public:
-  constexpr result_t result() const {
-    // return lhs_ + rhs_;
-    return op_(std::pair{lhs_, rhs_});
-  }
+  constexpr result_t result() const { return op_(std::pair{lhs_, rhs_}); }
   constexpr void set_lhs(input_t v) { lhs_ = v; }
   constexpr void set_rhs(input_t v) { rhs_ = v; }
+  constexpr input_t lhs() const noexcept { return lhs_; }
+  constexpr input_t rhs() const noexcept { return rhs_; }
   constexpr void set_operator(few_buttons_calculator_operations op) {
     op_.index(static_cast<int>(op));
+  }
+  constexpr few_buttons_calculator_operations
+  current_operator() const noexcept {
+    return static_cast<few_buttons_calculator_operations>(op_.index());
   }
   constexpr void swap_lr() noexcept { std::swap(lhs_, rhs_); }
   constexpr bool can_compute() const {
@@ -314,7 +343,67 @@ public:
                static_cast<int>(few_buttons_calculator_operations::divide) ||
            rhs_ != 0;
   }
+
+  friend constexpr void rotate_inplace(few_buttons_calculator *calc) {
+    rotate_inplace(&calc->op_);
+  }
 };
+
+template <typename T>
+concept few_buttons_calculator_like = requires(T &t, T const &tc, int i) {
+  { std::remove_cvref_t<T>::input_bits } -> std::convertible_to<std::size_t>;
+  t.set_lhs(i);
+  { t.lhs() } -> std::convertible_to<unsigned>;
+  t.swap_lr();
+};
+
+struct _calc_2_led_base {
+  enum class state { val0, val1, op };
+  state s_ = state::val0;
+};
+
+template <std::invocable T>
+  requires(few_buttons_calculator_like<std::invoke_result_t<T>> &&
+           std::is_reference_v<std::invoke_result_t<T>>)
+class calc_2_led : _calc_2_led_base {
+  T getter_{};
+  using calc_t = std::remove_cvref_t<std::invoke_result_t<T>>;
+  static constexpr auto input_bits = calc_t::input_bits;
+
+  constexpr calc_t &get() { return getter_(); }
+
+public:
+  constexpr calc_2_led() = default;
+  constexpr explicit calc_2_led(auto &&...gs)
+      : getter_(std::forward<decltype(gs)>(gs)...) {}
+
+  template <std::size_t bit>
+    requires(bit < input_bits || bit < 2)
+  constexpr void toggle_bit() {
+    constexpr unsigned xor_mask = (1u << bit);
+    auto &c = get();
+    if (s_ != state::op) {
+      auto org_val = c.lhs();
+      org_val ^= xor_mask;
+      c.set_lhs(org_val);
+    } else {
+      if constexpr (bit < 2) {
+        auto op = c.current_operator();
+        auto new_op = static_cast<unsigned>(op) ^ xor_mask;
+        c.set_operator(static_cast<few_buttons_calculator_operations>(new_op));
+      }
+    }
+  }
+  constexpr void rotate_behaviour() {
+    if (s_ == state::val0) {
+      auto &c = get();
+      c.swap_lr();
+    }
+    s_ = static_cast<state>((static_cast<int>(s_) + 1) % 3);
+  }
+};
+template <typename T>
+calc_2_led(T &&) -> calc_2_led<std::unwrap_ref_decay_t<T>>;
 
 } // namespace myb
 

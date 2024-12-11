@@ -47,18 +47,33 @@ CTA_TEST(toggle_ui_ctx, ctx) {
                 .build();
   ctx.expect_that(t1.toggle_count, eq(0));
   ctx.expect_that(t2.toggle_count, eq(0));
-  ctx.expect_that(ui.toggle_gpio(1), eq(true));
+  ctx.expect_that(ui.trigger_gpio(1), eq(true));
   ctx.expect_that(t1.toggle_count, eq(1));
   ctx.expect_that(t2.toggle_count, eq(0));
-  ctx.expect_that(ui.toggle_gpio(1), eq(true));
+  ctx.expect_that(ui.trigger_gpio(1), eq(true));
   ctx.expect_that(t1.toggle_count, eq(2));
   ctx.expect_that(t2.toggle_count, eq(0));
-  ctx.expect_that(ui.toggle_gpio(2), eq(true));
+  ctx.expect_that(ui.trigger_gpio(2), eq(true));
   ctx.expect_that(t1.toggle_count, eq(2));
   ctx.expect_that(t2.toggle_count, eq(1));
-  ctx.expect_that(ui.toggle_gpio(3), eq(false));
+  ctx.expect_that(ui.trigger_gpio(3), eq(false));
   ctx.expect_that(t1.toggle_count, eq(2));
   ctx.expect_that(t2.toggle_count, eq(1));
+}
+CTA_TEST(ui_ctx_callback, ctx) {
+  int callbacked{};
+  dummy_toggle t1;
+  dummy_toggle t2;
+  auto ui = ui_context::builder()
+                .gpios(gpio_sel<1> >> std::ref(t1), gpio_sel<2> >> std::ref(t2))
+                .build();
+  auto cb_fun = [&callbacked] { ++callbacked; };
+  ctx.expect_that(ui.trigger_gpio(1, cb_fun), eq(true));
+  ctx.expect_that(callbacked, eq(1));
+  ctx.expect_that(ui.trigger_gpio(2, cb_fun), eq(true));
+  ctx.expect_that(callbacked, eq(2));
+  ctx.expect_that(ui.trigger_gpio(3, cb_fun), eq(false));
+  ctx.expect_that(callbacked, eq(2));
 }
 CTA_TEST(sleep_and_wake, ctx) {
   dummy_toggle t1;
@@ -81,7 +96,7 @@ CTA_TEST(sleep_and_wake, ctx) {
   ctx.expect_that(t2.sleep_count, eq(2));
   ctx.expect_that(t1.wake_count, eq(1));
   ctx.expect_that(t2.wake_count, eq(1));
-  ui.toggle_gpio(1);
+  ui.trigger_gpio(1);
   ctx.expect_that(t1.wake_count, eq(2));
   ctx.expect_that(t2.wake_count, eq(2));
 }
@@ -136,6 +151,8 @@ CTA_TEST(variant_behaviour_basics, ctx) {
 }
 CTA_TEST(few_buttons_calculator_plus, ctx) {
   auto calc = few_buttons_calculator<3>();
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
   ctx.expect_that(calc.result(), eq(0u));
   calc.set_lhs(5);
   ctx.expect_that(calc.result(), eq(5u));
@@ -148,6 +165,8 @@ CTA_TEST(few_buttons_calculator_plus, ctx) {
 CTA_TEST(few_buttons_calculator_minus, ctx) {
   auto calc = few_buttons_calculator<3>();
   calc.set_operator(few_buttons_calculator_operations::subtract);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::subtract));
   calc.set_lhs(5);
   calc.set_rhs(3);
   ctx.expect_that(calc.result(), eq(2u));
@@ -159,6 +178,8 @@ CTA_TEST(few_buttons_calculator_minus, ctx) {
 CTA_TEST(few_buttons_calculator_multiply, ctx) {
   auto calc = few_buttons_calculator<3>();
   calc.set_operator(few_buttons_calculator_operations::multiply);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::multiply));
   calc.set_lhs(5);
   calc.set_rhs(3);
   ctx.expect_that(calc.result(), eq(15u));
@@ -176,6 +197,8 @@ CTA_TEST(few_buttons_calculator_divide, ctx) {
     ctx.expect_that(calc.result(), eq(concat_result), sl);
   };
   calc.set_operator(few_buttons_calculator_operations::divide);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::divide));
   calc.set_lhs(5);
   calc.set_rhs(3);
   div_expect(1, 2);
@@ -185,6 +208,78 @@ CTA_TEST(few_buttons_calculator_divide, ctx) {
   calc.set_rhs(0);
   ctx.expect_that(calc.can_compute(), eq(false));
   calc.result();
+}
+CTA_TEST(few_buttons_calculator_rotate, ctx) {
+  auto calc = few_buttons_calculator<3>();
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  rotate_inplace(&calc);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::subtract));
+  rotate_inplace(&calc);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::multiply));
+  rotate_inplace(&calc);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::divide));
+  rotate_inplace(&calc);
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+}
+CTA_TEST(calc_2_led_tests, ctx) {
+  auto calc = few_buttons_calculator<3>();
+  auto calc_fetch = [&calc]() -> auto & { return calc; };
+  auto calc_wrapper = calc_2_led(calc_fetch);
+  calc_wrapper.template toggle_bit<0>();
+  ctx.expect_that(calc.lhs(), eq(1));
+  ctx.expect_that(calc.rhs(), eq(0));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.template toggle_bit<0>();
+  ctx.expect_that(calc.lhs(), eq(0));
+  ctx.expect_that(calc.rhs(), eq(0));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.template toggle_bit<1>();
+  ctx.expect_that(calc.lhs(), eq(2));
+  ctx.expect_that(calc.rhs(), eq(0));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(calc.lhs(), eq(0));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.template toggle_bit<2>();
+  ctx.expect_that(calc.lhs(), eq(4));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(calc.lhs(), eq(4));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::add));
+  calc_wrapper.template toggle_bit<0>();
+  ctx.expect_that(calc.lhs(), eq(4));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::subtract));
+  calc_wrapper.template toggle_bit<1>();
+  ctx.expect_that(calc.lhs(), eq(4));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::divide));
+  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(calc.lhs(), eq(4));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::divide));
+  calc_wrapper.template toggle_bit<1>();
+  ctx.expect_that(calc.lhs(), eq(6));
+  ctx.expect_that(calc.rhs(), eq(2));
+  ctx.expect_that(calc.current_operator(),
+                  eq(few_buttons_calculator_operations::divide));
 }
 CTA_END_TESTS()
 } // namespace myb

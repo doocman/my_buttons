@@ -19,6 +19,7 @@ install/
 out-*/
 cmake-build-*
 local-*/
+Testing/
 
 CMakeUserPresets.json
 
