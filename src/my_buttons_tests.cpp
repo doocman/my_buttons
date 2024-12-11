@@ -144,9 +144,9 @@ CTA_TEST(few_buttons_calculator_basics, ctx) {
   calc.set_operator(few_buttons_calculator_operations::subtract);
   ctx.expect_that(calc.result(), eq(2u));
   calc.set_rhs(8);
-  ctx.expect_that(calc.result(), eq(0b111 - 3u));
-  //ctx.swap_lr();
-  //ctx.expect_that(calc.result(), eq(0b111 - 2u));
+  ctx.expect_that(calc.result(), eq(0b111111 - 2u));
+  // ctx.swap_lr();
+  // ctx.expect_that(calc.result(), eq(0b111 - 2u));
 }
 CTA_END_TESTS()
 } // namespace myb
