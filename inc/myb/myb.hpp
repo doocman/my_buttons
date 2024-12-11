@@ -278,16 +278,23 @@ private:
       return static_cast<result_t>(l - r) & result_mask;
     }
   };
-  struct subtract : op_base<subtract> {
-    static constexpr result_t call(input_t l, input_t r) { return l + r; }
+  struct multiply : op_base<multiply> {
+    static constexpr result_t call(input_t l, input_t r) { return l * r; }
   };
   struct divide : op_base<divide> {
-    static constexpr result_t call(input_t l, input_t r) { return l + r; }
+    static constexpr result_t call(input_t l, input_t r) {
+      if (r != 0) {
+        auto qr = std::div(l, r);
+        return (qr.quot << 3) | qr.rem;
+      } else {
+        return {};
+      }
+    }
   };
 
   input_t lhs_{};
   input_t rhs_{};
-  variant_stateless_function<std::pair<input_t, input_t>, plus, minus, subtract,
+  variant_stateless_function<std::pair<input_t, input_t>, plus, minus, multiply,
                              divide>
       op_;
 
@@ -301,8 +308,11 @@ public:
   constexpr void set_operator(few_buttons_calculator_operations op) {
     op_.index(static_cast<int>(op));
   }
-  constexpr void swap_lr() noexcept {
-    // std::swap(lhs_, rhs_);
+  constexpr void swap_lr() noexcept { std::swap(lhs_, rhs_); }
+  constexpr bool can_compute() const {
+    return op_.index() !=
+               static_cast<int>(few_buttons_calculator_operations::divide) ||
+           rhs_ != 0;
   }
 };
 

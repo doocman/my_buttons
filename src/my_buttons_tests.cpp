@@ -134,19 +134,57 @@ CTA_TEST(variant_behaviour_basics, ctx) {
   ctx.expect_that(calls[1], eq(1));
   ctx.expect_that(calls[2], eq(0));
 }
-CTA_TEST(few_buttons_calculator_basics, ctx) {
+CTA_TEST(few_buttons_calculator_plus, ctx) {
   auto calc = few_buttons_calculator<3>();
   ctx.expect_that(calc.result(), eq(0u));
   calc.set_lhs(5);
   ctx.expect_that(calc.result(), eq(5u));
   calc.set_rhs(3);
   ctx.expect_that(calc.result(), eq(8u));
+  calc.set_lhs(0b111);
+  calc.set_rhs(0b111);
+  ctx.expect_that(calc.result(), eq(0b111 + 0b111));
+}
+CTA_TEST(few_buttons_calculator_minus, ctx) {
+  auto calc = few_buttons_calculator<3>();
   calc.set_operator(few_buttons_calculator_operations::subtract);
+  calc.set_lhs(5);
+  calc.set_rhs(3);
   ctx.expect_that(calc.result(), eq(2u));
   calc.set_rhs(8);
   ctx.expect_that(calc.result(), eq(0b111111 - 2u));
-  // ctx.swap_lr();
-  // ctx.expect_that(calc.result(), eq(0b111 - 2u));
+  calc.swap_lr();
+  ctx.expect_that(calc.result(), eq(3));
+}
+CTA_TEST(few_buttons_calculator_multiply, ctx) {
+  auto calc = few_buttons_calculator<3>();
+  calc.set_operator(few_buttons_calculator_operations::multiply);
+  calc.set_lhs(5);
+  calc.set_rhs(3);
+  ctx.expect_that(calc.result(), eq(15u));
+  calc.set_lhs(0b111);
+  calc.set_rhs(0b111);
+  ctx.expect_that(calc.result(), eq(0b111 * 0b111));
+}
+CTA_TEST(few_buttons_calculator_divide, ctx) {
+  auto calc = few_buttons_calculator<3>();
+
+  auto div_expect = [&ctx, &calc](auto quot, auto rem,
+                                  cta::etd::source_location const &sl =
+                                      cta::etd::source_location::current()) {
+    auto concat_result = (quot << 3) | rem;
+    ctx.expect_that(calc.result(), eq(concat_result), sl);
+  };
+  calc.set_operator(few_buttons_calculator_operations::divide);
+  calc.set_lhs(5);
+  calc.set_rhs(3);
+  div_expect(1, 2);
+  calc.set_lhs(0b111);
+  calc.set_rhs(0b111);
+  div_expect(1, 0);
+  calc.set_rhs(0);
+  ctx.expect_that(calc.can_compute(), eq(false));
+  calc.result();
 }
 CTA_END_TESTS()
 } // namespace myb
@@ -165,7 +203,14 @@ int main() {
 #define MYB_TEST_RETURN(RES) return RES;
 #endif
 
+  using namespace std::chrono;
+
+  std::cout << "Run tests...\n";
+  auto cur_time = steady_clock::now();
   auto test_result = cta::just_run_tests();
+  auto end_time = steady_clock::now();
+  std::cout << "Ran " << test_result.total_tests << " tests in "
+            << duration_cast<microseconds>(end_time - cur_time) << '\n';
   if (test_result.total_tests == 0) {
     std::cout << "WARNING: No tests run\n";
   }
