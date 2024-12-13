@@ -2,7 +2,11 @@
 #ifndef MY_BUTTONS_MYB_MYB_HPP
 #define MY_BUTTONS_MYB_MYB_HPP
 
+#include <bitset>
+#include <concepts>
+#include <limits>
 #include <numeric>
+#include <type_traits>
 #include <utility>
 
 #include <cgui/std-backport/functional.hpp>
@@ -61,7 +65,7 @@ class ui_context {
     template <std::integral Pin, std::invocable CB = dtl::no_op_t>
     constexpr bool trigger_gpio(Pin pin, CB &&cb = {}) {
       if (apply_to(static_cast<GPIOs &>(*this),
-                   [this, pin](auto &...actions) -> bool {
+                   [this, pin](auto &&...actions) -> bool {
                      auto constexpr invoker = [](auto &a, auto p, auto &&self) {
                        if (a.pin_value == p) {
                          self.wake();
@@ -91,7 +95,7 @@ class ui_context {
     }
     constexpr void wake() {
       if (sleeping) {
-        apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
+        apply_to(static_cast<GPIOs &>(*this), [](auto &&...actions) {
           auto constexpr waker = [](auto &a) {
             a.on_wake();
             return 0;
@@ -362,42 +366,85 @@ struct _calc_2_led_base {
   state s_ = state::val0;
 };
 
+template <typename T, std::size_t in_bits>
+concept calc2led_callback =
+    requires(T &&t, std::bitset<in_bits> lr, std::bitset<in_bits * 2> res,
+             std::bitset<2> op) {
+      t.set_lhs(lr);
+      t.set_rhs(lr);
+      t.set_result(res);
+      t.set_no_result();
+      t.set_operator(op);
+    };
+
 template <std::invocable T>
   requires(few_buttons_calculator_like<std::invoke_result_t<T>> &&
            std::is_reference_v<std::invoke_result_t<T>>)
 class calc_2_led : _calc_2_led_base {
-  T getter_{};
+  [[no_unique_address]] T getter_{};
   using calc_t = std::remove_cvref_t<std::invoke_result_t<T>>;
   static constexpr auto input_bits = calc_t::input_bits;
 
   constexpr calc_t &get() { return getter_(); }
+
+  constexpr auto update_result(auto &cb) {
+    auto &c = get();
+    if (c.can_compute()) {
+      cb.set_result(
+          std::bitset<input_bits * 2>(static_cast<unsigned long>(c.result())));
+    } else {
+      cb.set_no_result();
+    }
+  }
+  constexpr void update_op(auto &&cb) {
+    auto &c = get();
+    auto op = c.current_operator();
+    cb.set_operator(std::bitset<2>(static_cast<unsigned long>(op)));
+  }
+
+  constexpr auto to_in_set(auto val) {
+    return std::bitset<input_bits>(static_cast<unsigned long>(val));
+  }
 
 public:
   constexpr calc_2_led() = default;
   constexpr explicit calc_2_led(auto &&...gs)
       : getter_(std::forward<decltype(gs)>(gs)...) {}
 
-  template <std::size_t bit>
+  template <std::size_t bit, calc2led_callback<input_bits> CB>
     requires(bit < input_bits || bit < 2)
-  constexpr void toggle_bit() {
+  constexpr void toggle_bit(CB &&cb) {
     constexpr unsigned xor_mask = (1u << bit);
     auto &c = get();
     if (s_ != state::op) {
       auto org_val = c.lhs();
       org_val ^= xor_mask;
       c.set_lhs(org_val);
+      cb.set_lhs(to_in_set(c.lhs()));
+      update_result(cb);
     } else {
       if constexpr (bit < 2) {
         auto op = c.current_operator();
         auto new_op = static_cast<unsigned>(op) ^ xor_mask;
         c.set_operator(static_cast<few_buttons_calculator_operations>(new_op));
+        update_result(cb);
+        update_op(cb);
       }
     }
   }
-  constexpr void rotate_behaviour() {
+  template <calc2led_callback<input_bits> CB> constexpr void read_all(CB &&cb) {
+    auto &c = get();
+    cb.set_lhs(to_in_set(c.lhs()));
+    cb.set_rhs(to_in_set(c.rhs()));
+    update_result(cb);
+    update_op(cb);
+  }
+  template <calc2led_callback<input_bits> CB>
+  constexpr void rotate_behaviour(CB &&cb) {
     if (s_ == state::val0) {
       auto &c = get();
       c.swap_lr();
+      read_all(cb);
     }
     s_ = static_cast<state>((static_cast<int>(s_) + 1) % 3);
   }

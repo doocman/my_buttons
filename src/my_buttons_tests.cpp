@@ -1,5 +1,6 @@
 
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <thread>
 
@@ -37,6 +38,25 @@ struct dummy_output_pin {
   constexpr void set_off() { ++toggled_off; }
   constexpr void initiate() { ++initiated; }
   constexpr void disable() { ++disabled; }
+};
+struct dummy_calc_out {
+  using in_set = std::bitset<3>;
+  using res_set = std::bitset<6>;
+  using op_set = std::bitset<2>;
+  in_set lhs{};
+  in_set rhs{};
+  res_set result{};
+  op_set op{};
+  bool no_result_{};
+
+  constexpr void set_lhs(in_set v) { lhs = v; }
+  constexpr void set_rhs(in_set v) { rhs = v; }
+  constexpr void set_result(res_set v) {
+    result = v;
+    no_result_ = false;
+  }
+  constexpr void set_no_result() { no_result_ = true; }
+  constexpr void set_operator(op_set v) { op = v; }
 };
 CTA_BEGIN_TESTS(myb_tests)
 CTA_TEST(toggle_ui_ctx, ctx) {
@@ -230,56 +250,120 @@ CTA_TEST(calc_2_led_tests, ctx) {
   auto calc = few_buttons_calculator<3>();
   auto calc_fetch = [&calc]() -> auto & { return calc; };
   auto calc_wrapper = calc_2_led(calc_fetch);
-  calc_wrapper.template toggle_bit<0>();
+  auto led_out = dummy_calc_out{};
+  using in_set = dummy_calc_out::in_set;
+  using res_set = dummy_calc_out::res_set;
+  using op_set = dummy_calc_out::op_set;
+  calc_wrapper.template toggle_bit<0>(led_out);
   ctx.expect_that(calc.lhs(), eq(1));
   ctx.expect_that(calc.rhs(), eq(0));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.template toggle_bit<0>();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("001")));
+  ctx.expect_that(led_out.rhs, eq(in_set("000")));
+  ctx.expect_that(led_out.result, eq(res_set("000001")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<0>(led_out);
   ctx.expect_that(calc.lhs(), eq(0));
   ctx.expect_that(calc.rhs(), eq(0));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.template toggle_bit<1>();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("000")));
+  ctx.expect_that(led_out.rhs, eq(in_set("000")));
+  ctx.expect_that(led_out.result, eq(res_set("000000")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<1>(led_out);
   ctx.expect_that(calc.lhs(), eq(2));
   ctx.expect_that(calc.rhs(), eq(0));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("010")));
+  ctx.expect_that(led_out.rhs, eq(in_set("000")));
+  ctx.expect_that(led_out.result, eq(res_set("000010")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.rotate_behaviour(led_out);
   ctx.expect_that(calc.lhs(), eq(0));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.template toggle_bit<2>();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("000")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("000010")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<2>(led_out);
   ctx.expect_that(calc.lhs(), eq(4));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("100")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("000110")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.rotate_behaviour(led_out);
   ctx.expect_that(calc.lhs(), eq(4));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::add));
-  calc_wrapper.template toggle_bit<0>();
+  ctx.expect_that(led_out.op, eq(op_set("00")));
+  ctx.expect_that(led_out.lhs, eq(in_set("100")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("000110")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<0>(led_out);
   ctx.expect_that(calc.lhs(), eq(4));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::subtract));
-  calc_wrapper.template toggle_bit<1>();
+  ctx.expect_that(led_out.op, eq(op_set("01")));
+  ctx.expect_that(led_out.lhs, eq(in_set("100")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("000010")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<1>(led_out);
   ctx.expect_that(calc.lhs(), eq(4));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::divide));
-  calc_wrapper.rotate_behaviour();
+  ctx.expect_that(led_out.op, eq(op_set("11")));
+  ctx.expect_that(led_out.lhs, eq(in_set("100")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("010000")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.rotate_behaviour(led_out);
   ctx.expect_that(calc.lhs(), eq(4));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::divide));
-  calc_wrapper.template toggle_bit<1>();
-  ctx.expect_that(calc.lhs(), eq(6));
+  ctx.expect_that(led_out.op, eq(op_set("11")));
+  ctx.expect_that(led_out.lhs, eq(in_set("100")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("010000")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+  calc_wrapper.template toggle_bit<0>(led_out);
+  ctx.expect_that(calc.lhs(), eq(5));
   ctx.expect_that(calc.rhs(), eq(2));
   ctx.expect_that(calc.current_operator(),
                   eq(few_buttons_calculator_operations::divide));
+  ctx.expect_that(led_out.op, eq(op_set("11")));
+  ctx.expect_that(led_out.lhs, eq(in_set("101")));
+  ctx.expect_that(led_out.rhs, eq(in_set("010")));
+  ctx.expect_that(led_out.result, eq(res_set("010001")));
+  ctx.expect_that(led_out.no_result_, eq(false));
+
+  calc_wrapper.template toggle_bit<0>(led_out);
+  calc_wrapper.template toggle_bit<2>(led_out);
+  ctx.expect_that(calc.lhs(), eq(0));
+  ctx.expect_that(calc.rhs(), eq(2));
+  calc_wrapper.rotate_behaviour(led_out);
+  ctx.expect_that(calc.lhs(), eq(2));
+  ctx.expect_that(calc.rhs(), eq(0));
+  ctx.expect_that(calc.can_compute(), eq(false));
+  ctx.expect_that(led_out.no_result_, eq(true));
 }
 CTA_END_TESTS()
 } // namespace myb

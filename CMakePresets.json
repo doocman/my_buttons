@@ -28,6 +28,15 @@
         "binaryDir": "build/p_rp2040_r",
         "installDir": "install/p_rp2040_r"
     }, {
+        "name": "gcc-rp2040-minsz",
+        "inherits":["gcc-pico-basic"],
+        "cacheVariables": {
+            "PICO_PLATFORM":"rp2040",
+            "CMAKE_BUILD_TYPE":"MinSizeRel"
+        },
+        "binaryDir": "build/p_rp2040_r-minsz",
+        "installDir": "install/p_rp2040_r-minsz"
+    }, {
         "name": "gcc-rp2350",
         "inherits":["gcc-pico-basic"],
         "cacheVariables": {
@@ -49,5 +58,8 @@
     "buildPresets": [{
         "name": "gcc-rp2040",
         "configurePreset": "gcc-rp2040"
+    },{
+        "name": "gcc-rp2040-minsz",
+        "configurePreset": "gcc-rp2040-minsz"
     }]
   }
