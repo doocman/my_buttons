@@ -463,6 +463,26 @@ public:
 template <typename T>
 calc_2_led(T &&) -> calc_2_led<std::unwrap_ref_decay_t<T>>;
 
+template <typename Fetcher>
+  requires(std::is_empty_v<Fetcher> && std::invocable<Fetcher> &&
+           std::is_lvalue_reference_v<std::invoke_result_t<Fetcher>>)
+struct static_toggle_wrapper : private Fetcher {
+  constexpr decltype(auto) trigger() noexcept { return Fetcher::trigger(); }
+  constexpr decltype(auto) on_sleep() noexcept { return Fetcher::on_sleep(); }
+  constexpr decltype(auto) on_wake() noexcept { return Fetcher::on_wake(); }
+};
+
+template <typename Trigger> class no_sleep_wake : Trigger {
+public:
+  constexpr explicit no_sleep_wake(Trigger t) : Trigger(std::move(t)) {}
+  constexpr no_sleep_wake() = default;
+  constexpr void trigger() noexcept { static_cast<Trigger &>(*this)(); }
+  static constexpr void on_sleep() noexcept {};
+  static constexpr void on_wake() noexcept {};
+};
+template <typename T>
+no_sleep_wake(T &&) -> no_sleep_wake<std::remove_cvref_t<T>>;
+
 } // namespace myb
 
 #endif

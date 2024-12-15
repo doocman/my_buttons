@@ -39,6 +39,7 @@ if (MYB_RPI_PICO)
         # create map/bin/hex/uf2 file etc.
         pico_add_extra_outputs(${NAME})
         target_link_libraries(${NAME} PRIVATE fmt::fmt myb::myb_headers ${MYB_EXTRA_LINKS})
+        target_include_directories(${NAME} PRIVATE src)
     endfunction()
     myb_add_app(3bit_calculator src/3bit_calculator_main.cpp)
     myb_add_app(buttons_core src/buttons_core_main.cpp)
