@@ -428,10 +428,10 @@ public:
     constexpr unsigned xor_mask = (1u << bit);
     auto &c = get();
     if (s_ != state::op) {
-      auto org_val = c.lhs();
+      auto org_val = c.rhs();
       org_val ^= xor_mask;
-      c.set_lhs(org_val);
-      cb.set_lhs(to_in_set(c.lhs()));
+      c.set_rhs(org_val);
+      cb.set_rhs(to_in_set(c.rhs()));
       update_result(cb);
     } else {
       if constexpr (bit < 2) {

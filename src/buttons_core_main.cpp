@@ -12,6 +12,8 @@ namespace myb {
 // gpio 6 -> send wake interrupt
 // gpio 7 -> receive wake interrupt
 
+// static auto
+
 void main() {}
 } // namespace myb
 
