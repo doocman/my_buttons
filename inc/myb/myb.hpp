@@ -68,7 +68,6 @@ class ui_context {
                    [this, pin](auto &&...actions) -> bool {
                      auto constexpr invoker = [](auto &a, auto p, auto &&self) {
                        if (a.pin_value == p) {
-                         self.wake();
                          a.trigger();
                          return true;
                        }
@@ -104,6 +103,16 @@ class ui_context {
         });
         sleeping = false;
       }
+    }
+    constexpr void for_each_input(std::invocable<uint> auto &&cb) const {
+      apply_to(static_cast<GPIOs const &>(*this),
+               [&cb](auto const &...actions) {
+                 constexpr auto inv = [](auto &c, auto &a) {
+                   std::invoke(c, a.pin_value);
+                   return 0;
+                 };
+                 (void)(inv(cb, actions) + ...);
+               });
     }
   };
 

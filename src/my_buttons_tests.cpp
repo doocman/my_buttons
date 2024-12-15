@@ -39,6 +39,24 @@ struct dummy_output_pin {
   constexpr void initiate() { ++initiated; }
   constexpr void disable() { ++disabled; }
 };
+struct dummy_all_pin_cb {
+  int calls_1{};
+  int calls_2{};
+  int calls_err{};
+  constexpr void operator()(uint i) {
+    switch (i) {
+    case 1u:
+      ++calls_1;
+      return;
+    case 2u:
+      ++calls_2;
+      return;
+    default:
+      ++calls_err;
+      return;
+    }
+  }
+};
 struct dummy_calc_out {
   using in_set = std::bitset<3>;
   using res_set = std::bitset<6>;
@@ -116,9 +134,18 @@ CTA_TEST(sleep_and_wake, ctx) {
   ctx.expect_that(t2.sleep_count, eq(2));
   ctx.expect_that(t1.wake_count, eq(1));
   ctx.expect_that(t2.wake_count, eq(1));
-  ui.trigger_gpio(1);
-  ctx.expect_that(t1.wake_count, eq(2));
-  ctx.expect_that(t2.wake_count, eq(2));
+}
+CTA_TEST(all_inputs_in_ctx, ctx) {
+  auto pins_cb = dummy_all_pin_cb{};
+  dummy_toggle t1;
+  dummy_toggle t2;
+  auto ui = ui_context::builder()
+                .gpios(gpio_sel<1> >> std::ref(t1), gpio_sel<2> >> std::ref(t2))
+                .build();
+  ui.for_each_input(pins_cb);
+  ctx.expect_that(pins_cb.calls_1, eq(1));
+  ctx.expect_that(pins_cb.calls_2, eq(1));
+  ctx.expect_that(pins_cb.calls_err, eq(0));
 }
 CTA_TEST(led_raii_init_light_destruct, ctx) {
   dummy_output_pin pin;

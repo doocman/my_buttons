@@ -115,6 +115,11 @@ struct calc_output {
   }
 };
 
+using steady_clock = std::chrono::steady_clock;
+inline constexpr auto sleep_timeout = std::chrono::minutes(5);
+inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
+static auto next_sleep = steady_clock::time_point{};
+
 static auto calc_3b = few_buttons_calculator<3>();
 static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
 static auto wake_other = rxtx_wake_interrupt<8>();
@@ -140,6 +145,9 @@ public:
 // gpio 2,3,4,5 -> reserved for future SPIO or i2c.
 // gpio 6 -> send wake interrupt
 // gpio 7 -> receive wake interrupt
+
+inline constexpr uint wake_tx_gpio = 6u;
+inline constexpr uint wake_rx_gpio = 7u;
 
 using calc_op_pins = led_binary_out<8, 9>;
 using calc_rhs_out_pins = led_binary_out<13, 14, 15>;
@@ -171,6 +179,7 @@ void wake_and_prolong() {
   wake_and_prolong_no_send();
   wake_other.set();
 }
+void sleep() {}
 
 void gpio_irq(uint gpio, std::uint32_t events) {
   constexpr std::uint32_t edge_rise_mask = 0b1000u;
@@ -187,6 +196,18 @@ void gpio_irq(uint gpio, std::uint32_t events) {
 
 int main() {
   while (1) {
+    gpio_set_irq_enabled_with_callback(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true,
+                                       &gpio_irq);
+    ui_context_calc.for_each_input(
+        [](uint pin) { 
+          gpio_set_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
+          gpio_set_dormant_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
+          });
+    next_sleep = steady_clock::now() + sleep_timeout;
+    while (steady_clock::now() < next_sleep) {
+      std::this_thread::sleep_for(sleep_poll_timeout);
+    }
+    sleep();
   }
 }
 } // namespace

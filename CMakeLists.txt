@@ -28,17 +28,20 @@ enable_testing()
 cta_add_test(${TEST_NAME})
 
 if (MYB_RPI_PICO)
-    set(EXE_NAME my_buttons)
-    add_executable(${EXE_NAME} src/my_buttons.cpp)
-
     add_subdirectory(pico-linux-libc)
-
-    # enable usb output, disable uart output
-    pico_enable_stdio_usb(${EXE_NAME} 1)
-    pico_enable_stdio_uart(${EXE_NAME} 0)
-    
-    # create map/bin/hex/uf2 file etc.
-    pico_add_extra_outputs(${EXE_NAME})
+    set(MYB_EXTRA_LINKS dooc::picolinuxc pico_stdlib)
+    function (myb_add_app NAME SRC)
+        add_executable(${NAME} ${SRC})
+        # disable usb output, disable uart output
+        pico_enable_stdio_usb(${NAME} 0)
+        pico_enable_stdio_uart(${NAME} 0)
+        
+        # create map/bin/hex/uf2 file etc.
+        pico_add_extra_outputs(${NAME})
+        target_link_libraries(${NAME} PRIVATE fmt::fmt myb::myb_headers ${MYB_EXTRA_LINKS})
+    endfunction()
+    myb_add_app(3bit_calculator src/3bit_calculator_main.cpp)
+    myb_add_app(buttons_core src/buttons_core_main.cpp)
     
     # enable usb output, disable uart output
     pico_enable_stdio_usb(${TEST_NAME} 1)
@@ -47,10 +50,8 @@ if (MYB_RPI_PICO)
     # create map/bin/hex/uf2 file etc.
     pico_add_extra_outputs(${TEST_NAME})
 
-    set(MYB_EXTRA_LINKS dooc::picolinuxc pico_stdlib)
-    target_link_libraries(${EXE_NAME} PUBLIC fmt::fmt myb::myb_headers ${MYB_EXTRA_LINKS})
     add_compile_definitions(${TEST_NAME} MYB_PICO=true)
 endif ()
 
-target_link_libraries(${TEST_NAME} PUBLIC fmt::fmt cta::cta myb::myb_headers ${MYB_EXTRA_LINKS})
+target_link_libraries(${TEST_NAME} PRIVATE fmt::fmt cta::cta myb::myb_headers ${MYB_EXTRA_LINKS})
 
