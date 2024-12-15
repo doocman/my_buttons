@@ -3,7 +3,9 @@
 #define MY_BUTTONS_MYB_MYB_HPP
 
 #include <bitset>
+#include <climits>
 #include <concepts>
+#include <cstdint>
 #include <limits>
 #include <numeric>
 #include <type_traits>

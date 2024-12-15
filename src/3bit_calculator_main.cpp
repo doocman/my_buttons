@@ -6,8 +6,6 @@
 
 #include "pico/stdlib.h"
 
-#include <fmt/core.h>
-
 #include <picolinux/picolinux_libc.hpp>
 
 #include <myb/myb.hpp>
