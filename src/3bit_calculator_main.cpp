@@ -151,7 +151,13 @@ static auto ui_context_calc =
             )
         .build();
 
-void wake_and_prolong_no_send() { wake_other.init(); }
+void wake_and_prolong_no_send(steady_clock::time_point now) {
+  wake_other.init();
+  next_sleep = now + sleep_timeout;
+}
+void wake_and_prolong_no_send() {
+  wake_and_prolong_no_send(steady_clock::now());
+}
 void wake_and_prolong() {
   wake_and_prolong_no_send();
   wake_other.set();
@@ -206,7 +212,7 @@ int main() {
       gpio_set_dormant_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
     });
     auto now_time = steady_clock::now();
-    next_sleep = now_time + sleep_timeout;
+    wake_and_prolong_no_send(now_time);
     while (now_time < next_sleep) {
       auto next_sleep = run_async_tasks(now_time);
       std::this_thread::sleep_for(next_sleep.value_or(sleep_poll_timeout));

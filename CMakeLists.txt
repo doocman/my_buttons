@@ -43,7 +43,7 @@ if (MYB_RPI_PICO)
     endfunction()
     myb_add_app(3bit_calculator src/3bit_calculator_main.cpp)
     myb_add_app(buttons_core src/buttons_core_main.cpp)
-    target_link_libraries(buttons_core PRIVATE hardware_pwm hardware_adc fmt::fmt)
+    target_link_libraries(buttons_core PRIVATE hardware_pwm hardware_adc hardware_dma fmt::fmt)
     
     # enable usb output, disable uart output
     pico_enable_stdio_usb(${TEST_NAME} 1)
