@@ -11,6 +11,7 @@
 
 #include <picolinux/picolinux_libc.hpp>
 
+#include <app/myb_app.hpp>
 #include <myb/myb.hpp>
 
 #include <class/cdc/cdc_device.h>
@@ -23,14 +24,14 @@
 namespace myb {
 
 template <ct_int pin> struct pico_toggle_gpio {
-  static void on_sleep() { gpio_set(pin.i, 0u); }
+  static void on_sleep() { gpio_put(pin.i, 0u); }
   static void on_wake() {
     gpio_init(pin.i);
     gpio_set_dir(pin.i, GPIO_OUT);
   }
   static void trigger() {
     auto cur_val = gpio_get(pin.i);
-    gpio_set(pin.i, cur_val == 0 ? 1u : 0u);
+    gpio_put(pin.i, cur_val == 0 ? 1u : 0u);
   }
 };
 
@@ -101,6 +102,7 @@ public:
                           capture_buf.size(), // transfer count
                           true                // start immediately
     );
+    dma_channel_set_irq0_enabled(dma_chan_, true);
     adc_run(true);
   }
   bool is_adc_ready() { return !dma_channel_is_busy(dma_chan_); }
@@ -114,6 +116,7 @@ public:
                           capture_buf.size(), // transfer count
                           true                // start immediately
     );
+    dma_hw->ints0 = 1u << dma_chan_;
     auto res_sum =
         std::ranges::fold_left(to_read, std::int_fast32_t{}, std::plus<>{});
     return res_sum / buff_size;
@@ -162,6 +165,12 @@ public:
 inline constexpr uint wake_tx_gpio = 6u;
 inline constexpr uint wake_rx_gpio = 7u;
 
+using steady_clock = std::chrono::steady_clock;
+inline constexpr auto sleep_timeout = std::chrono::minutes(5);
+inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
+static auto next_sleep = steady_clock::time_point{};
+static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
+
 static auto context = ui_context::builder()
                           .gpios(                                     //
                               gpio_sel<8> >> pico_toggle_gpio<9>(),   //> red
@@ -174,62 +183,81 @@ static auto context = ui_context::builder()
 static auto the_adc = adc2dma<26, 512>{};
 using the_fader_t = pwm_led_fader<25, 256>;
 
+void wake_and_prolong_no_send(steady_clock::time_point now) {
+  wake_other.init();
+  next_sleep = now + sleep_timeout;
+}
+void wake_and_prolong_no_send() {
+  wake_and_prolong_no_send(steady_clock::now());
+}
+void wake_and_prolong() {
+  wake_and_prolong_no_send();
+  wake_other.set();
+}
+void sleep() {}
+
+void gpio_irq(uint gpio, std::uint32_t events) {
+  constexpr std::uint32_t edge_rise_mask = 0b1000u;
+  // We only care about edge rise.
+  if ((events & edge_rise_mask) == 0) {
+    return;
+  }
+  if (gpio == 7) {
+    wake_and_prolong_no_send();
+  } else {
+    context.trigger_gpio(gpio, [] { wake_and_prolong(); });
+  }
+}
+
+#define DEBUG 1
+
+void dma_irq() {
+  auto v = the_adc.read_averaged_adc();
+#if DEBUG
+  fmt::print("Averaged ADC value is {}\n", v);
+#endif
+  the_fader_t::set_level(v >> 4);
+}
+
 void main() {
-  stdio_init_all();
-  while (true) {
-    if (stdio_usb_connected()) {
-      break;
-    }
-  }
-
   // setup_adc();
-  the_adc.init();
-  the_fader_t::init();
+  while (1) {
 
-  while (tud_cdc_n_write_flush(0) != 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  int cur_pwm_level = 1;
-  using namespace std::chrono;
-  auto now = steady_clock::now();
-  auto next_print = now + 1s;
-  int num_adc_vals{};
-  int adc_sum{};
-  nanoseconds time_waited{};
-  nanoseconds time_calculated{};
-  while (stdio_usb_connected()) {
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    auto org_tp = steady_clock::now();
-    // wait_for_adc();
-    while (!the_adc.is_adc_ready()) {
-    }
-    auto wait_end = steady_clock::now();
-    adc_sum += the_adc.read_averaged_adc();
-    ++num_adc_vals;
-    now = steady_clock::now();
-    time_waited += (wait_end - org_tp);
-    time_calculated += (now - wait_end);
-    if (now >= next_print) {
-      ++cur_pwm_level;
-      cur_pwm_level = cur_pwm_level % 256;
-      the_fader_t::set_level(cur_pwm_level);
-      fmt::print("Set pwm level to {}\n", cur_pwm_level);
-      if (num_adc_vals != 0) {
-        fmt::print("ADC value was {}\n", adc_sum / num_adc_vals);
-        adc_sum = 0;
-        num_adc_vals = 0;
-      } else {
-        fmt::print("NO ADC VALUE WAS RECEIVED!\n");
+#if DEBUG
+    stdio_init_all();
+    while (true) {
+      if (stdio_usb_connected()) {
+        fmt::print("USB Connected!\n");
+        break;
       }
-      fmt::print("Time waited: {} and time calculated: {}\n", time_waited,
-                 time_calculated);
-      time_waited = 0ns;
-      time_calculated = 0ns;
-      next_print = now + 1s;
     }
+#endif
+    gpio_set_dir(wake_rx_gpio, GPIO_IN);
+    gpio_set_irq_enabled_with_callback(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true,
+                                       &gpio_irq);
+    gpio_set_dormant_irq_enabled(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true);
+    context.for_each_input([](uint pin) {
+      gpio_set_dir(pin, GPIO_IN);
+      gpio_set_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
+      gpio_set_dormant_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
+    });
+    irq_set_exclusive_handler(DMA_IRQ_0, &dma_irq);
+    irq_set_enabled(DMA_IRQ_0, true);
+    the_adc.init();
+    the_fader_t::init();
+
+#if DEBUG
+    while (stdio_usb_connected()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    irq_set_enabled(DMA_IRQ_0, false);
+    while (tud_cdc_n_write_flush(0) != 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    tud_disconnect();
+    reset_usb_boot(0, 0);
+#endif
   }
-  tud_disconnect();
-  reset_usb_boot(0, 0);
 }
 } // namespace myb
 

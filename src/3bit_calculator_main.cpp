@@ -83,14 +83,6 @@ struct calc_output {
   }
 };
 
-using steady_clock = std::chrono::steady_clock;
-inline constexpr auto sleep_timeout = std::chrono::minutes(5);
-inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
-static auto next_sleep = steady_clock::time_point{};
-static auto calc_3b = few_buttons_calculator<3>();
-static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
-static auto wake_other = rxtx_wake_interrupt<8>();
-
 template <std::invocable Getter, typename Output> class rotate_calc3b : Getter {
   constexpr auto &get_wrap() { return static_cast<Getter &>(*this)(); }
 
@@ -118,6 +110,14 @@ public:
 
 inline constexpr uint wake_tx_gpio = 6u;
 inline constexpr uint wake_rx_gpio = 7u;
+
+using steady_clock = std::chrono::steady_clock;
+inline constexpr auto sleep_timeout = std::chrono::minutes(5);
+inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
+static auto next_sleep = steady_clock::time_point{};
+static auto calc_3b = few_buttons_calculator<3>();
+static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
+static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
 
 inline constexpr auto calc_no_res_flash_timeout = std::chrono::seconds(1);
 static std::optional<steady_clock::time_point> next_calc_flash;
@@ -206,6 +206,7 @@ int main() {
     gpio_set_dir(wake_rx_gpio, GPIO_IN);
     gpio_set_irq_enabled_with_callback(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true,
                                        &gpio_irq);
+    gpio_set_dormant_irq_enabled(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true);
     ui_context_calc.for_each_input([](uint pin) {
       gpio_set_dir(pin, GPIO_IN);
       gpio_set_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
