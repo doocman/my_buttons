@@ -16,12 +16,6 @@ inline namespace {
 
 struct do_init_t {};
 
-template <ct_int pin> struct rxtx_wake_interrupt {
-  void set() const { gpio_put(pin.i, 1); }
-  void reset() const { gpio_put(pin.i, 0); }
-  void init() const { init_gpio_for_output(pin.i); }
-};
-
 struct led_binary_out_base {
   template <ct_int... pins, std::size_t... is>
     requires(sizeof...(is) == sizeof...(pins))
@@ -93,7 +87,6 @@ using steady_clock = std::chrono::steady_clock;
 inline constexpr auto sleep_timeout = std::chrono::minutes(5);
 inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
 static auto next_sleep = steady_clock::time_point{};
-
 static auto calc_3b = few_buttons_calculator<3>();
 static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
 static auto wake_other = rxtx_wake_interrupt<8>();
@@ -168,17 +161,22 @@ void sleep() {}
 std::optional<std::chrono::microseconds> run_async_tasks(auto now) {
   using namespace std::chrono;
   if (next_calc_flash) {
-    auto &next_flash = *next_calc_flash;
-    while (now >= next_flash) {
-      auto is_flash_on =
-          (duration_cast<seconds>(next_flash.time_since_epoch()).count() & 1) ==
-          1;
-      auto val_to_set = is_flash_on ? std::numeric_limits<unsigned long>::max()
-                                    : (unsigned long){};
-      calc_output_t::set_lresult(val_to_set);
-      next_flash += calc_no_res_flash_timeout;
+    if (calc_3b.can_compute()) {
+      next_calc_flash = std::nullopt;
+    } else {
+      auto &next_flash = *next_calc_flash;
+      while (now >= next_flash) {
+        auto is_flash_on =
+            (duration_cast<seconds>(next_flash.time_since_epoch()).count() &
+             1) == 1;
+        auto val_to_set = is_flash_on
+                              ? std::numeric_limits<unsigned long>::max()
+                              : (unsigned long){};
+        calc_output_t::set_lresult(val_to_set);
+        next_flash += calc_no_res_flash_timeout;
+      }
+      return duration_cast<microseconds>(next_flash - now);
     }
-    return duration_cast<microseconds>(next_flash - now);
   }
   return std::nullopt;
 }

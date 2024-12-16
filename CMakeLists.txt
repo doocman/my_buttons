@@ -33,7 +33,7 @@ if (MYB_RPI_PICO)
     function (myb_add_app NAME SRC)
         add_executable(${NAME} ${SRC})
         # disable usb output, disable uart output
-        pico_enable_stdio_usb(${NAME} 0)
+        pico_enable_stdio_usb(${NAME} 1)
         pico_enable_stdio_uart(${NAME} 0)
         
         # create map/bin/hex/uf2 file etc.
@@ -43,6 +43,7 @@ if (MYB_RPI_PICO)
     endfunction()
     myb_add_app(3bit_calculator src/3bit_calculator_main.cpp)
     myb_add_app(buttons_core src/buttons_core_main.cpp)
+    target_link_libraries(buttons_core PRIVATE hardware_pwm hardware_adc fmt::fmt)
     
     # enable usb output, disable uart output
     pico_enable_stdio_usb(${TEST_NAME} 1)
