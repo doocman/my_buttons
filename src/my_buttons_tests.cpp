@@ -394,12 +394,11 @@ CTA_TEST(calc_2_led_tests, ctx) {
 CTA_TEST(typed_time_queue_basics, ctx) {
   int val_a{};
   int val_b{};
-  auto cb_a = [&val_a](auto &&) { ++val_a; };
-  auto cb_b = [&val_b](auto &&) { ++val_b; };
+  auto cb_a = [&val_a](auto &&...) { ++val_a; };
+  auto cb_b = [&val_b](auto &&...) { ++val_b; };
   using namespace std::chrono;
   using clock_t = steady_clock;
   using time_point = clock_t::time_point;
-  // using test_type = typed_time_queue<time_point, type_a, type_b>;
   auto to_test = typed_time_queue(time_point{}, cb_a, cb_b);
   auto next = to_test.next();
   ctx.expect_that(next, eq(std::nullopt));
@@ -421,6 +420,23 @@ CTA_TEST(typed_time_queue_basics, ctx) {
   to_test.que(cb_b, time_point(4ns));
   ctx.expect_that(to_test.execute_all(time_point(4ns)), eq(2));
   ctx.expect_that(val_a, eq(3));
+  ctx.expect_that(val_b, eq(1));
+}
+CTA_TEST(typed_time_queue_unque, ctx) {
+  int val_a{};
+  int val_b{};
+  auto cb_a = [&val_a](auto &&...) { ++val_a; };
+  auto cb_b = [&val_b](auto &&...) { ++val_b; };
+  using namespace std::chrono;
+  using clock_t = steady_clock;
+  using time_point = clock_t::time_point;
+  auto to_test = typed_time_queue(time_point{}, cb_a, cb_b);
+  to_test.que(cb_a, time_point(2ns));
+  to_test.que(cb_b, time_point(3ns));
+  to_test.unque(cb_a);
+  ctx.expect_that(to_test.next(), eq(time_point(3ns)));
+  ctx.expect_that(to_test.execute_all(time_point(3ns)), eq(1));
+  ctx.expect_that(val_a, eq(0));
   ctx.expect_that(val_b, eq(1));
 }
 CTA_END_TESTS()

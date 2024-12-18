@@ -32,6 +32,7 @@ template <ct_int... pins> struct led_binary_out : private led_binary_out_base {
   static void set(std::bitset<sizeof...(pins)> const &vals) {
     do_set<pins...>(vals, std::make_index_sequence<sizeof...(pins)>{});
   }
+  static void set_all(int val) { (void)(set_gpio_out(pin.i, val) + ...); }
   static void sleep() { (void)(set_gpio_out(pins.i, 0) + ...); }
   static constexpr auto out_size = sizeof...(pins);
 };
@@ -103,6 +104,16 @@ public:
   }
 };
 
+template <led_binary_out_c Out> struct flash_binary_out {
+  constexpr void operator()(auto &&q, auto &&tp) {
+    using namespace std::chrono;
+    auto flash_val =
+        static_cast<int>(duration_cast<seconds>(tp.time_since_epoch()) & 1);
+    Out::set_all(flash_val);
+    q.que(tp, *this);
+  }
+};
+
 // gpio 0+1 -> i2c to other RPi Pico
 // gpio 2,3,4,5 -> reserved for future SPIO or i2c.
 // gpio 6 -> send wake interrupt
@@ -150,6 +161,13 @@ static auto ui_context_calc =
             }) //
             )
         .build();
+
+inline constexpr auto sleeper = [] (auto&&...) {
+  ui_context_calc.sleep();
+  next_calc_flash = std::nullopt;
+  calc_output_t::sleep_all();
+  go_deep_sleep();
+}
 
 void wake_and_prolong_no_send(steady_clock::time_point now) {
   wake_other.init();

@@ -473,13 +473,14 @@ class typed_time_queue : dtl::empty_structs_optimiser<Ts...> {
     return res;
   }
   std::array<TimePoint, q_size> time_points_ = init_tps();
-  using ts_type_erase = std::add_pointer_t<void(typed_time_queue &)>;
+  using ts_type_erase =
+      std::add_pointer_t<void(typed_time_queue &, TimePoint const &)>;
   template <typename T>
   inline static constexpr auto type_index_v =
       dtl::tuple_element_index_v<T, std::tuple<Ts...>>;
   inline static constexpr std::array<ts_type_erase, q_size> ts_callbacks = {
-      [](typed_time_queue &q) {
-        get<type_index_v<Ts>>(static_cast<_base_t &>(q))(q);
+      [](typed_time_queue &q, TimePoint const &tp) {
+        get<type_index_v<Ts>>(static_cast<_base_t &>(q))(q, tp);
       }...};
   constexpr auto next_element() {
     return std::ranges::min_element(time_points_);
@@ -501,11 +502,12 @@ public:
     int count{};
     while (true) {
       auto lowest = std::ranges::min_element(time_points_);
-      if (*lowest <= tp) {
+      auto cur_tp = *lowest;
+      if (cur_tp <= tp) {
         ++count;
         *lowest = TimePoint::max();
         auto index = std::ranges::distance(begin(time_points_), lowest);
-        ts_callbacks[index](*this);
+        ts_callbacks[index](*this, cur_tp);
       } else {
         return count;
       }
@@ -517,6 +519,13 @@ public:
     constexpr auto type_i = dtl::tuple_element_index_v<T, std::tuple<Ts...>>;
     static_assert(type_i < q_size);
     time_points_[type_i] = tp;
+  }
+  template <typename T>
+    requires((std::is_same_v<T, Ts> || ...))
+  constexpr void unque(T const &) {
+    constexpr auto type_i = dtl::tuple_element_index_v<T, std::tuple<Ts...>>;
+    static_assert(type_i < q_size);
+    time_points_[type_i] = TimePoint::max();
   }
 };
 template <typename TP, typename... Ts>
