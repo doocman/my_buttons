@@ -18,11 +18,18 @@ int set_gpio_out(unsigned pin, bool value) {
   return {};
 }
 
-template <ct_int pin> struct rxtx_wake_interrupt {
+template <ct_int pin, std::invocable QueueReset>
+struct rxtx_wake_interrupt
+  requires(std::is_empty_v<QueueReset>)
+{
+  constexpr rxtx_wake_interrupt() = default;
+  constexpr explicit rxtx_wake_interrupt(QueueReset) {}
   void set() const { gpio_put(pin.i, 1); }
   void reset() const { gpio_put(pin.i, 0); }
   void init() const { init_gpio_for_output(pin.i); }
 };
+
+void go_deep_sleep() { scb_hw->scr |= ARM_CPU_PREFIXED(SCR_SLEEPDEEP_BITS); }
 } // namespace
 } // namespace myb
 

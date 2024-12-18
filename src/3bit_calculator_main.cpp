@@ -162,7 +162,12 @@ void wake_and_prolong() {
   wake_and_prolong_no_send();
   wake_other.set();
 }
-void sleep() {}
+void sleep() {
+  ui_context_calc.sleep();
+  next_calc_flash = std::nullopt;
+  calc_output_t::sleep_all();
+  go_deep_sleep();
+}
 
 std::optional<std::chrono::microseconds> run_async_tasks(auto now) {
   using namespace std::chrono;
@@ -200,7 +205,7 @@ void gpio_irq(uint gpio, std::uint32_t events) {
   }
 }
 
-int main() {
+void main() {
   while (1) {
 
     gpio_set_dir(wake_rx_gpio, GPIO_IN);
@@ -225,4 +230,4 @@ int main() {
 } // namespace
 } // namespace myb
 
-int main() { return myb::main(); }
+int main() { myb::main(); }

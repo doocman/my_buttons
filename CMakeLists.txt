@@ -33,7 +33,7 @@ if (MYB_RPI_PICO)
     function (myb_add_app NAME SRC)
         add_executable(${NAME} ${SRC})
         # disable usb output, disable uart output
-        pico_enable_stdio_usb(${NAME} 1)
+        pico_enable_stdio_usb(${NAME} 0)
         pico_enable_stdio_uart(${NAME} 0)
         
         # create map/bin/hex/uf2 file etc.

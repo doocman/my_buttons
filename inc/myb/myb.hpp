@@ -84,7 +84,7 @@ class ui_context {
     }
     constexpr void sleep() {
       if (!sleeping) {
-        apply_to(static_cast<GPIOs &>(*this), [](auto &...actions) {
+        apply_to(static_cast<GPIOs &>(*this), [](auto &&...actions) {
           auto constexpr sleeper = [](auto &a) {
             a.on_sleep();
             return 0;
@@ -462,6 +462,66 @@ public:
 };
 template <typename T>
 calc_2_led(T &&) -> calc_2_led<std::unwrap_ref_decay_t<T>>;
+
+template <typename TimePoint, typename... Ts>
+class typed_time_queue : dtl::empty_structs_optimiser<Ts...> {
+  using _base_t = dtl::empty_structs_optimiser<Ts...>;
+  static constexpr auto q_size = sizeof...(Ts);
+  static consteval std::array<TimePoint, q_size> init_tps() {
+    std::array<TimePoint, q_size> res{};
+    std::ranges::fill(res, TimePoint::max());
+    return res;
+  }
+  std::array<TimePoint, q_size> time_points_ = init_tps();
+  using ts_type_erase = std::add_pointer_t<void(typed_time_queue &)>;
+  template <typename T>
+  inline static constexpr auto type_index_v =
+      dtl::tuple_element_index_v<T, std::tuple<Ts...>>;
+  inline static constexpr std::array<ts_type_erase, q_size> ts_callbacks = {
+      [](typed_time_queue &q) {
+        get<type_index_v<Ts>>(static_cast<_base_t &>(q))(q);
+      }...};
+  constexpr auto next_element() {
+    return std::ranges::min_element(time_points_);
+  }
+
+public:
+  constexpr typed_time_queue() = default;
+  template <typename... Us>
+    requires(std::constructible_from<_base_t, Us...>)
+  constexpr explicit typed_time_queue(TimePoint, Us &&...args)
+      : _base_t(std::forward<Us>(args)...) {}
+  constexpr std::optional<TimePoint> next() {
+    if (auto val = next_element(); *val < TimePoint::max()) {
+      return *val;
+    }
+    return std::nullopt;
+  }
+  constexpr int execute_all(TimePoint const &tp) {
+    int count{};
+    while (true) {
+      auto lowest = std::ranges::min_element(time_points_);
+      if (*lowest <= tp) {
+        ++count;
+        *lowest = TimePoint::max();
+        auto index = std::ranges::distance(begin(time_points_), lowest);
+        ts_callbacks[index](*this);
+      } else {
+        return count;
+      }
+    }
+  }
+  template <typename T>
+    requires((std::is_same_v<T, Ts> || ...))
+  constexpr void que(T const &, TimePoint tp) {
+    constexpr auto type_i = dtl::tuple_element_index_v<T, std::tuple<Ts...>>;
+    static_assert(type_i < q_size);
+    time_points_[type_i] = tp;
+  }
+};
+template <typename TP, typename... Ts>
+typed_time_queue(TP,
+                 Ts...) -> typed_time_queue<TP, std::unwrap_ref_decay_t<Ts>...>;
 
 template <typename Fetcher>
   requires(std::is_empty_v<Fetcher> && std::invocable<Fetcher> &&

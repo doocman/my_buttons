@@ -14,12 +14,17 @@
 #include <app/myb_app.hpp>
 #include <myb/myb.hpp>
 
+#if __has_include(<class/cdc/cdc_device.h>)
+#define DEBUG 1
 #include <class/cdc/cdc_device.h>
 #include <device/usbd.h>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <pico/bootrom.h>
 #include <pico/stdlib.h>
+#else
+#define DEBUG 0
+#endif
 
 namespace myb {
 
@@ -194,7 +199,12 @@ void wake_and_prolong() {
   wake_and_prolong_no_send();
   wake_other.set();
 }
-void sleep() {}
+void sleep() {
+  context.sleep();
+  the_adc.sleep();
+  the_fader_t::sleep();
+  go_deep_sleep();
+}
 
 void gpio_irq(uint gpio, std::uint32_t events) {
   constexpr std::uint32_t edge_rise_mask = 0b1000u;
@@ -208,14 +218,17 @@ void gpio_irq(uint gpio, std::uint32_t events) {
     context.trigger_gpio(gpio, [] { wake_and_prolong(); });
   }
 }
-
-#define DEBUG 1
+static auto old_adc_value = decltype(the_adc.read_averaged_adc()){};
 
 void dma_irq() {
   auto v = the_adc.read_averaged_adc();
 #if DEBUG
   fmt::print("Averaged ADC value is {}\n", v);
 #endif
+  if (static_cast<unsigned>(v - old_adc_value) >= 32) {
+    next_sleep = steady_clock::now() + sleep_timeout;
+    old_adc_value = v;
+  }
   the_fader_t::set_level(v >> 4);
 }
 
@@ -249,6 +262,9 @@ void main() {
 #if DEBUG
     while (stdio_usb_connected()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      if (steady_clock::now() >= next_sleep) {
+        sleep();
+      }
     }
     irq_set_enabled(DMA_IRQ_0, false);
     while (tud_cdc_n_write_flush(0) != 0) {
@@ -256,6 +272,11 @@ void main() {
     }
     tud_disconnect();
     reset_usb_boot(0, 0);
+#else
+    while (steady_clock::now() < next_sleep) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    sleep();
 #endif
   }
 }
