@@ -122,25 +122,6 @@ template <led_binary_out_c Out> struct flash_binary_out {
 // gpio 6 -> send wake interrupt
 // gpio 7 -> receive wake interrupt
 
-template <typename T>
-  requires(requires() { T::reset(); })
-struct call_static_reset {
-  constexpr auto operator()(auto &&...) const -> decltype(T::reset()) {
-    return T::reset();
-  }
-};
-
-struct queue_reset {
-  static constexpr auto timeout = std::chrono::microseconds(100);
-  template <typename T, typename Queue>
-    requires(requires() { T::reset(); })
-  constexpr auto operator()(T const &,
-                            Queue &&q) const -> decltype(T::reset()) {
-    // return T::reset();
-    q.que(call_static_reset<T>{}, steady_clock::now() + timeout);
-  }
-};
-
 inline constexpr uint wake_tx_gpio = 6u;
 inline constexpr uint wake_rx_gpio = 7u;
 using wake_other_t = rxtx_wake_interrupt<wake_tx_gpio, queue_reset>;
@@ -250,8 +231,12 @@ void main() {
     });
     auto now_time = steady_clock::now();
     wake_and_prolong_no_send(now_time);
+    auto last_alarm_set = steady_clock::time_point{};
     while (now_time < next_sleep) {
       auto next_sleep = run_async_tasks(now_time);
+      if (next_sleep) {
+        // start timer and run _wfi() or pmc_sleep(SAM_PM_SMODE_SLEEP_WFE)
+      }
       std::this_thread::sleep_for(next_sleep.value_or(sleep_poll_timeout));
       now_time = steady_clock::now();
     }

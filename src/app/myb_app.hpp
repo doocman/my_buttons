@@ -2,6 +2,7 @@
 #ifndef MYB_APP_MYB_APP_HPP
 #define MYB_APP_MYB_APP_HPP
 
+#include <chrono>
 #include <concepts>
 
 #include <pico/stdlib.h>
@@ -20,7 +21,26 @@ int set_gpio_out(unsigned pin, bool value) {
   return {};
 }
 
-template <ct_int pin, typename QueueReset>
+template <typename T>
+  requires(requires() { T::reset(); })
+struct call_static_reset {
+  constexpr auto operator()(auto &&...) const -> decltype(T::reset()) {
+    return T::reset();
+  }
+};
+
+struct queue_reset {
+  static constexpr auto timeout = std::chrono::microseconds(100);
+  template <typename T, typename Queue>
+    requires(requires() { T::reset(); })
+  constexpr auto operator()(T const &,
+                            Queue &&q) const -> decltype(T::reset()) {
+    // return T::reset();
+    q.que(call_static_reset<T>{}, std::chrono::steady_clock::now() + timeout);
+  }
+};
+
+template <ct_int pin, typename QueueReset = queue_reset>
   requires(std::is_empty_v<QueueReset>)
 struct rxtx_wake_interrupt {
   constexpr rxtx_wake_interrupt() = default;

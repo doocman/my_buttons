@@ -174,9 +174,10 @@ using steady_clock = std::chrono::steady_clock;
 inline constexpr auto sleep_timeout = std::chrono::minutes(5);
 inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
 static auto next_sleep = steady_clock::time_point{};
-static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio, decltype([]() {
-                                               // que.reset
-                                             })>();
+static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
+
+static auto timed_queue = typed_time_queue(
+    steady_clock::time_point{}, call_static_reset<decltype(wake_other)>{});
 
 static auto context = ui_context::builder()
                           .gpios(                                     //
@@ -199,7 +200,7 @@ void wake_and_prolong_no_send() {
 }
 void wake_and_prolong() {
   wake_and_prolong_no_send();
-  wake_other.set();
+  wake_other.set(timed_queue);
 }
 void sleep() {
   context.sleep();
