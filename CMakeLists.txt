@@ -29,7 +29,7 @@ cta_add_test(${TEST_NAME})
 
 if (MYB_RPI_PICO)
     add_subdirectory(pico-linux-libc)
-    set(MYB_EXTRA_LINKS dooc::picolinuxc pico_stdlib)
+    set(MYB_EXTRA_LINKS dooc::picolinuxc pico_stdlib hardware_rtc)
     function (myb_add_app NAME SRC)
         add_executable(${NAME} ${SRC})
         # disable usb output, disable uart output

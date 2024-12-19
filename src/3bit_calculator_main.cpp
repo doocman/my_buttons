@@ -195,13 +195,10 @@ void sleep() {
   go_deep_sleep();
 }
 
-std::optional<std::chrono::microseconds> run_async_tasks(auto now) {
+std::optional<steady_clock::time_point> run_async_tasks(auto now) {
   using namespace std::chrono;
   timed_queue.execute_all(now);
-  if (auto tp = timed_queue.next()) {
-    return duration_cast<microseconds>(*tp - now);
-  }
-  return {};
+  return timed_queue.next();
 }
 
 void gpio_irq(uint gpio, std::uint32_t events) {
@@ -231,13 +228,16 @@ void main() {
     });
     auto now_time = steady_clock::now();
     wake_and_prolong_no_send(now_time);
-    auto last_alarm_set = steady_clock::time_point{};
+    auto alarm = alarm_t();
+    next_sleep = steady_clock::now() + sleep_timeout;
     while (now_time < next_sleep) {
-      auto next_sleep = run_async_tasks(now_time);
-      if (next_sleep) {
-        // start timer and run _wfi() or pmc_sleep(SAM_PM_SMODE_SLEEP_WFE)
+      auto next_task_time = run_async_tasks(now_time);
+      if (next_task_time && *next_task_time != alarm.alarm_point()) {
+        alarm = alarm_t(*next_task_time);
+      } else if (alarm.alarm_point() != next_sleep) {
+        alarm = alarm_t(next_sleep);
       }
-      std::this_thread::sleep_for(next_sleep.value_or(sleep_poll_timeout));
+      __wfi();
       now_time = steady_clock::now();
     }
     sleep();

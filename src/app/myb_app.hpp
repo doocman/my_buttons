@@ -5,6 +5,7 @@
 #include <chrono>
 #include <concepts>
 
+#include <hardware/sync.h>
 #include <pico/stdlib.h>
 
 #include <myb/myb.hpp>
@@ -51,6 +52,52 @@ struct rxtx_wake_interrupt {
   }
   static void reset() { gpio_put(pin.i, 0); }
   static void init() { init_gpio_for_output(pin.i); }
+};
+
+class alarm_t {
+  using steady_clock = std::chrono::steady_clock;
+  using time_point = steady_clock::time_point;
+  time_point alarm_time = time_point::min();
+  alarm_id_t alarm_id{};
+  constexpr absolute_time_t tp2picotime(time_point const &tp) noexcept {
+    using namespace std::chrono;
+    auto raw_value = static_cast<std::uint64_t>(
+        duration_cast<microseconds>(tp.time_since_epoch()).count());
+    return {raw_value};
+  }
+  void _do_cancel() {
+    if (has_alarm()) {
+      cancel_alarm(alarm_id);
+    }
+  }
+
+public:
+  static constexpr auto default_callback = [](auto...) -> std::int64_t {
+    return 0;
+  };
+  constexpr alarm_t() noexcept = default;
+  alarm_t(time_point tp, alarm_callback_t cb) noexcept
+      : alarm_time(tp),
+        alarm_id(add_alarm_at(tp2picotime(tp), cb, nullptr, false)) {}
+  explicit alarm_t(time_point tp) noexcept : alarm_t(tp, default_callback) {}
+  constexpr bool has_alarm() const { return alarm_time != time_point::min(); }
+  void cancel() {
+    _do_cancel();
+    alarm_time = time_point::min();
+  }
+  ~alarm_t() { _do_cancel(); }
+  alarm_t(alarm_t &&other) noexcept
+      : alarm_time(std::exchange(other.alarm_time, time_point::min())),
+        alarm_id(other.alarm_id) {}
+  alarm_t &operator=(alarm_t &&other) noexcept {
+    if (this != &other) {
+      _do_cancel();
+      other.alarm_time = time_point::min();
+      alarm_id = other.alarm_id;
+    }
+    return *this;
+  }
+  constexpr time_point alarm_point() const { return alarm_time; }
 };
 
 void go_deep_sleep() { scb_hw->scr |= ARM_CPU_PREFIXED(SCR_SLEEPDEEP_BITS); }
