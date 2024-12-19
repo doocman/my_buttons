@@ -13,6 +13,9 @@
 
 namespace myb {
 inline namespace {
+using steady_clock = std::chrono::steady_clock;
+inline constexpr auto sleep_timeout = std::chrono::minutes(5);
+inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
 
 struct do_init_t {};
 
@@ -32,7 +35,7 @@ template <ct_int... pins> struct led_binary_out : private led_binary_out_base {
   static void set(std::bitset<sizeof...(pins)> const &vals) {
     do_set<pins...>(vals, std::make_index_sequence<sizeof...(pins)>{});
   }
-  static void set_all(int val) { (void)(set_gpio_out(pin.i, val) + ...); }
+  static void set_all(int val) { (void)(set_gpio_out(pins.i, val) + ...); }
   static void sleep() { (void)(set_gpio_out(pins.i, 0) + ...); }
   static constexpr auto out_size = sizeof...(pins);
 };
@@ -107,10 +110,10 @@ public:
 template <led_binary_out_c Out> struct flash_binary_out {
   constexpr void operator()(auto &&q, auto &&tp) {
     using namespace std::chrono;
-    auto flash_val =
-        static_cast<int>(duration_cast<seconds>(tp.time_since_epoch()) & 1);
+    auto flash_val = static_cast<int>(
+        duration_cast<seconds>(tp.time_since_epoch()).count() & 1);
     Out::set_all(flash_val);
-    q.que(tp, *this);
+    q.que(*this, tp + 1s);
   }
 };
 
@@ -119,30 +122,52 @@ template <led_binary_out_c Out> struct flash_binary_out {
 // gpio 6 -> send wake interrupt
 // gpio 7 -> receive wake interrupt
 
+template <typename T>
+  requires(requires() { T::reset(); })
+struct call_static_reset {
+  constexpr auto operator()(auto &&...) const -> decltype(T::reset()) {
+    return T::reset();
+  }
+};
+
+struct queue_reset {
+  static constexpr auto timeout = std::chrono::microseconds(100);
+  template <typename T, typename Queue>
+    requires(requires() { T::reset(); })
+  constexpr auto operator()(T const &,
+                            Queue &&q) const -> decltype(T::reset()) {
+    // return T::reset();
+    q.que(call_static_reset<T>{}, steady_clock::now() + timeout);
+  }
+};
+
 inline constexpr uint wake_tx_gpio = 6u;
 inline constexpr uint wake_rx_gpio = 7u;
-
-using steady_clock = std::chrono::steady_clock;
-inline constexpr auto sleep_timeout = std::chrono::minutes(5);
-inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
-static auto next_sleep = steady_clock::time_point{};
-static auto calc_3b = few_buttons_calculator<3>();
-static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
-static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
-
-inline constexpr auto calc_no_res_flash_timeout = std::chrono::seconds(1);
-static std::optional<steady_clock::time_point> next_calc_flash;
+using wake_other_t = rxtx_wake_interrupt<wake_tx_gpio, queue_reset>;
 
 using calc_op_pins = led_binary_out<8, 9>;
 using calc_rhs_out_pins = led_binary_out<13, 14, 15>;
 using calc_lhs_out_pins = led_binary_out<17, 18, 19>;
 using calc_res_out_pins = led_binary_out<20, 21, 22, 26, 27, 28>;
+using calc_flasher = flash_binary_out<calc_res_out_pins>;
+static auto timed_queue =
+    typed_time_queue(steady_clock::time_point{}, calc_flasher{},
+                     call_static_reset<wake_other_t>{});
 using calc_output_t =
     calc_output<calc_lhs_out_pins, calc_rhs_out_pins, calc_res_out_pins,
                 calc_op_pins, decltype([]() {
                   using namespace std::chrono;
-                  next_calc_flash = steady_clock::now();
+                  timed_queue.que(calc_flasher{}, steady_clock::now());
+                  // next_calc_flash = steady_clock::now();
                 })>;
+
+static auto next_sleep = steady_clock::time_point{};
+static auto calc_3b = few_buttons_calculator<3>();
+static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
+static auto wake_other =
+    wake_other_t{}; // rxtx_wake_interrupt<wake_tx_gpio, >();
+
+inline constexpr auto calc_no_res_flash_timeout = std::chrono::seconds(1);
 
 static auto ui_context_calc =
     ui_context::builder()
@@ -162,12 +187,13 @@ static auto ui_context_calc =
             )
         .build();
 
-inline constexpr auto sleeper = [] (auto&&...) {
+inline constexpr auto sleeper = [](auto &&...) {
   ui_context_calc.sleep();
-  next_calc_flash = std::nullopt;
+  // next_calc_flash = std::nullopt;
+  // TODO: unque flash
   calc_output_t::sleep_all();
   go_deep_sleep();
-}
+};
 
 void wake_and_prolong_no_send(steady_clock::time_point now) {
   wake_other.init();
@@ -178,36 +204,23 @@ void wake_and_prolong_no_send() {
 }
 void wake_and_prolong() {
   wake_and_prolong_no_send();
-  wake_other.set();
+  wake_other.set(timed_queue);
 }
 void sleep() {
   ui_context_calc.sleep();
-  next_calc_flash = std::nullopt;
+  // next_calc_flash = std::nullopt;
+  // TODO unque flash
   calc_output_t::sleep_all();
   go_deep_sleep();
 }
 
 std::optional<std::chrono::microseconds> run_async_tasks(auto now) {
   using namespace std::chrono;
-  if (next_calc_flash) {
-    if (calc_3b.can_compute()) {
-      next_calc_flash = std::nullopt;
-    } else {
-      auto &next_flash = *next_calc_flash;
-      while (now >= next_flash) {
-        auto is_flash_on =
-            (duration_cast<seconds>(next_flash.time_since_epoch()).count() &
-             1) == 1;
-        auto val_to_set = is_flash_on
-                              ? std::numeric_limits<unsigned long>::max()
-                              : (unsigned long){};
-        calc_output_t::set_lresult(val_to_set);
-        next_flash += calc_no_res_flash_timeout;
-      }
-      return duration_cast<microseconds>(next_flash - now);
-    }
+  timed_queue.execute_all(now);
+  if (auto tp = timed_queue.next()) {
+    return duration_cast<microseconds>(*tp - now);
   }
-  return std::nullopt;
+  return {};
 }
 
 void gpio_irq(uint gpio, std::uint32_t events) {
