@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <concepts>
+#include <initializer_list>
 
 #include <hardware/sync.h>
 #include <pico/stdlib.h>
@@ -27,6 +28,12 @@ inline namespace {
 int init_gpio_for_output(unsigned pin) {
   gpio_init(pin);
   gpio_set_dir(pin, GPIO_OUT);
+  return {};
+}
+int init_gpio_for_output(std::integral auto... pins)
+  requires(sizeof...(pins) > 1)
+{
+  (void)(init_gpio_for_output(pins) + ...);
   return {};
 }
 int set_gpio_out(unsigned pin, bool value) {

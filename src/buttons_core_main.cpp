@@ -149,6 +149,35 @@ public:
   }
 };
 
+template <ct_int redp, ct_int yellowp, ct_int greenp>
+struct static_traffic_lights_out {
+  static void init() noexcept {
+    init_gpio_for_output(redp.i, yellowp.i, greenp.i);
+  }
+  static void red(bool v) { set_gpio_out(redp.i, v); }
+  static void yellow(bool v) { set_gpio_out(yellowp.i, v); }
+  static void green(bool v) { set_gpio_out(greenp.i, v); }
+};
+
+template <ct_int... pins>
+  requires(sizeof...(pins) == 3)
+class traffic_light_fsm_winit {
+  traffic_light_fsm fsm_{};
+  using out_t = static_traffic_lights_out<pins...>;
+
+public:
+  traffic_light_fsm_winit() { on_wake(); }
+  void on_wake() {
+    out_t::init();
+    fsm_.write_to(out_t{});
+  }
+  void trigger() {
+    fsm_.advance();
+    fsm_.write_to(out_t{});
+  }
+  constexpr void on_sleep() {}
+};
+
 // gpio 0+1 -> i2c to other RPi Pico
 // gpio 2,3,4,5 -> reserved for future SPIO or i2c.
 // gpio 6 -> send wake interrupt
@@ -163,14 +192,16 @@ static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
 static auto timed_queue = typed_time_queue(
     steady_clock::time_point{}, call_static_reset<decltype(wake_other)>{});
 
-static auto context = ui_context::builder()
-                          .gpios(                                     //
-                              gpio_sel<8> >> pico_toggle_gpio<9>(),   //> red
-                              gpio_sel<10> >> pico_toggle_gpio<11>(), //> green
-                              gpio_sel<12> >> pico_toggle_gpio<13>()  //> blue
-                              //
-                              )
-                          .build();
+static auto context =
+    ui_context::builder()
+        .gpios(                                     //
+            gpio_sel<8> >> pico_toggle_gpio<9>(),   //> red
+            gpio_sel<10> >> pico_toggle_gpio<11>(), //> green
+            gpio_sel<12> >> pico_toggle_gpio<13>(), //> blue
+            gpio_sel<18> >> traffic_light_fsm_winit<19, 20, 21>()
+            //
+            )
+        .build();
 
 static auto the_adc = adc2dma<26, 512>{};
 using the_fader_t = pwm_led_fader<25, 256>;
