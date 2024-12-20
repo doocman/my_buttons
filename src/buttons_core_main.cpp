@@ -251,7 +251,6 @@ void dma_irq() {
 }
 
 void main() {
-  // setup_adc();
   while (1) {
     gpio_set_dir(wake_rx_gpio, GPIO_IN);
     gpio_set_irq_enabled_with_callback(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true,
