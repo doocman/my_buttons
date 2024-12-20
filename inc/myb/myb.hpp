@@ -552,6 +552,47 @@ public:
 template <typename T>
 no_sleep_wake(T &&) -> no_sleep_wake<std::remove_cvref_t<T>>;
 
+template <typename T>
+concept traffic_lights_output = requires(T &&t, bool v) {
+  t.red(v);
+  t.yellow(v);
+  t.green(v);
+};
+
+class traffic_light_fsm {
+  std::int_least8_t state_{};
+  static constexpr void write_ryg(auto &&o, bool r, bool y, bool g) {
+    o.red(r);
+    o.yellow(y);
+    o.green(g);
+  }
+
+public:
+  constexpr void write_to(traffic_lights_output auto &&o) const {
+    switch (state_) {
+    case 0:
+      write_ryg(o, true, false, false);
+      return;
+    case 1:
+      write_ryg(o, true, true, false);
+      return;
+    case 2:
+      write_ryg(o, false, false, true);
+      return;
+    case 3:
+      write_ryg(o, false, true, false);
+      return;
+    }
+    o.red(true);
+    o.yellow(false);
+    o.green(false);
+  }
+  constexpr void advance() {
+    ++state_;
+    state_ = state_ & 3;
+  }
+};
+
 } // namespace myb
 
 #endif

@@ -76,6 +76,15 @@ struct dummy_calc_out {
   constexpr void set_no_result() { no_result_ = true; }
   constexpr void set_operator(op_set v) { op = v; }
 };
+struct dummy_redyelgreen_out {
+  bool red_on{};
+  bool yel_on{};
+  bool gre_on{};
+
+  constexpr void red(bool v) { red_on = v; };
+  constexpr void yellow(bool v) { yel_on = v; };
+  constexpr void green(bool v) { gre_on = v; };
+};
 CTA_BEGIN_TESTS(myb_tests)
 CTA_TEST(toggle_ui_ctx, ctx) {
   dummy_toggle t1;
@@ -438,6 +447,34 @@ CTA_TEST(typed_time_queue_unque, ctx) {
   ctx.expect_that(to_test.execute_all(time_point(3ns)), eq(1));
   ctx.expect_that(val_a, eq(0));
   ctx.expect_that(val_b, eq(1));
+}
+CTA_TEST(traffic_light_basics, ctx) {
+  auto out = dummy_redyelgreen_out();
+  auto to_test = traffic_light_fsm();
+  to_test.write_to(out);
+  ctx.expect_that(out.red_on, eq(true));
+  ctx.expect_that(out.yel_on, eq(false));
+  ctx.expect_that(out.gre_on, eq(false));
+  to_test.advance();
+  to_test.write_to(out);
+  ctx.expect_that(out.red_on, eq(true));
+  ctx.expect_that(out.yel_on, eq(true));
+  ctx.expect_that(out.gre_on, eq(false));
+  to_test.advance();
+  to_test.write_to(out);
+  ctx.expect_that(out.red_on, eq(false));
+  ctx.expect_that(out.yel_on, eq(false));
+  ctx.expect_that(out.gre_on, eq(true));
+  to_test.advance();
+  to_test.write_to(out);
+  ctx.expect_that(out.red_on, eq(false));
+  ctx.expect_that(out.yel_on, eq(true));
+  ctx.expect_that(out.gre_on, eq(false));
+  to_test.advance();
+  to_test.write_to(out);
+  ctx.expect_that(out.red_on, eq(true));
+  ctx.expect_that(out.yel_on, eq(false));
+  ctx.expect_that(out.gre_on, eq(false));
 }
 CTA_END_TESTS()
 } // namespace myb
