@@ -13,9 +13,6 @@
 
 namespace myb {
 inline namespace {
-using steady_clock = std::chrono::steady_clock;
-inline constexpr auto sleep_timeout = std::chrono::minutes(5);
-inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
 
 struct do_init_t {};
 
@@ -142,7 +139,6 @@ using calc_output_t =
                   // next_calc_flash = steady_clock::now();
                 })>;
 
-static auto next_sleep = steady_clock::time_point{};
 static auto calc_3b = few_buttons_calculator<3>();
 static auto calc_wrap = calc_2_led([]() -> auto & { return calc_3b; });
 static auto wake_other =
@@ -183,8 +179,8 @@ void wake_and_prolong_no_send(steady_clock::time_point now) {
 void wake_and_prolong_no_send() {
   wake_and_prolong_no_send(steady_clock::now());
 }
-void wake_and_prolong() {
-  wake_and_prolong_no_send();
+void wake_and_prolong(steady_clock::time_point now = steady_clock::now()) {
+  wake_and_prolong_no_send(now);
   wake_other.set(timed_queue);
 }
 void sleep() {
@@ -227,7 +223,8 @@ void main() {
       gpio_set_dormant_irq_enabled(pin, GPIO_IRQ_EDGE_RISE, true);
     });
     auto now_time = steady_clock::now();
-    wake_and_prolong_no_send(now_time);
+    wake_and_prolong(now_time);
+#if 0
     auto alarm = alarm_t();
     next_sleep = steady_clock::now() + sleep_timeout;
     while (now_time < next_sleep) {
@@ -240,6 +237,9 @@ void main() {
       __wfi();
       now_time = steady_clock::now();
     }
+#else
+    myb_loop<steady_clock>([](auto const &tp) { return run_async_tasks(tp); });
+#endif
     sleep();
   }
 }

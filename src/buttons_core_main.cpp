@@ -14,18 +14,6 @@
 #include <app/myb_app.hpp>
 #include <myb/myb.hpp>
 
-#if __has_include(<class/cdc/cdc_device.h>)
-#define DEBUG 1
-#include <class/cdc/cdc_device.h>
-#include <device/usbd.h>
-#include <fmt/chrono.h>
-#include <fmt/core.h>
-#include <pico/bootrom.h>
-#include <pico/stdlib.h>
-#else
-#define DEBUG 0
-#endif
-
 namespace myb {
 
 template <ct_int pin> struct pico_toggle_gpio {
@@ -170,10 +158,6 @@ public:
 inline constexpr uint wake_tx_gpio = 6u;
 inline constexpr uint wake_rx_gpio = 7u;
 
-using steady_clock = std::chrono::steady_clock;
-inline constexpr auto sleep_timeout = std::chrono::minutes(5);
-inline constexpr auto sleep_poll_timeout = std::chrono::seconds(5);
-static auto next_sleep = steady_clock::time_point{};
 static auto wake_other = rxtx_wake_interrupt<wake_tx_gpio>();
 
 static auto timed_queue = typed_time_queue(
@@ -225,7 +209,7 @@ static auto old_adc_value = decltype(the_adc.read_averaged_adc()){};
 
 void dma_irq() {
   auto v = the_adc.read_averaged_adc();
-#if DEBUG
+#if MYB_DEBUG
   fmt::print("Averaged ADC value is {}\n", v);
 #endif
   if (static_cast<unsigned>(v - old_adc_value) >= 32) {
@@ -238,16 +222,6 @@ void dma_irq() {
 void main() {
   // setup_adc();
   while (1) {
-
-#if DEBUG
-    stdio_init_all();
-    while (true) {
-      if (stdio_usb_connected()) {
-        fmt::print("USB Connected!\n");
-        break;
-      }
-    }
-#endif
     gpio_set_dir(wake_rx_gpio, GPIO_IN);
     gpio_set_irq_enabled_with_callback(wake_rx_gpio, GPIO_IRQ_EDGE_RISE, true,
                                        &gpio_irq);
@@ -261,26 +235,11 @@ void main() {
     irq_set_enabled(DMA_IRQ_0, true);
     the_adc.init();
     the_fader_t::init();
-
-#if DEBUG
-    while (stdio_usb_connected()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-      if (steady_clock::now() >= next_sleep) {
-        sleep();
-      }
-    }
-    irq_set_enabled(DMA_IRQ_0, false);
-    while (tud_cdc_n_write_flush(0) != 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    tud_disconnect();
-    reset_usb_boot(0, 0);
-#else
-    while (steady_clock::now() < next_sleep) {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    myb_loop<steady_clock>([](auto const &tp) {
+      timed_queue.execute_all(tp);
+      return timed_queue.next();
+    });
     sleep();
-#endif
   }
 }
 } // namespace myb

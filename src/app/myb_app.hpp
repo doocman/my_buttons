@@ -10,6 +10,18 @@
 
 #include <myb/myb.hpp>
 
+#if __has_include(<class/cdc/cdc_device.h>)
+#define MYB_DEBUG 1
+#include <class/cdc/cdc_device.h>
+#include <device/usbd.h>
+#include <fmt/chrono.h>
+#include <fmt/core.h>
+#include <pico/bootrom.h>
+#include <pico/stdlib.h>
+#else
+#define MYB_DEBUG 0
+#endif
+
 namespace myb {
 inline namespace {
 int init_gpio_for_output(unsigned pin) {
@@ -101,6 +113,44 @@ public:
 };
 
 void go_deep_sleep() { scb_hw->scr |= ARM_CPU_PREFIXED(SCR_SLEEPDEEP_BITS); }
+
+using steady_clock = std::chrono::steady_clock;
+inline constexpr auto sleep_timeout = std::chrono::minutes(5);
+static auto next_sleep = steady_clock::time_point{};
+
+template <typename Clock, std::invocable<typename Clock::time_point> AsyncTasks>
+  requires(requires(
+      std::invoke_result_t<AsyncTasks &&, typename Clock::time_point> r) {
+    { *r } -> std::convertible_to<typename Clock::time_point>;
+  })
+void myb_loop(AsyncTasks &&run_async_tasks) {
+  auto now_time = Clock::now();
+  auto alarm = alarm_t();
+  next_sleep = now_time + sleep_timeout;
+#if MYB_DEBUG
+  while (true) {
+    if (stdio_usb_connected()) {
+      fmt::print("USB Connected!\n");
+      break;
+    }
+  }
+#endif
+  while (now_time < next_sleep) {
+    auto next_task_time = run_async_tasks(now_time);
+    if (next_task_time && *next_task_time != alarm.alarm_point()) {
+      alarm = alarm_t(*next_task_time);
+    } else if (alarm.alarm_point() != next_sleep) {
+      alarm = alarm_t(next_sleep);
+    }
+    __wfi();
+    now_time = Clock::now();
+#if MYB_DEBUG
+    if (!stdio_usb_connected()) {
+      reset_usb_boot(0, 0);
+    }
+#endif
+  }
+}
 } // namespace
 } // namespace myb
 
